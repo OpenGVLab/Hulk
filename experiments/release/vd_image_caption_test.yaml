@@ -1,0 +1,29 @@
+common:
+  backbone:
+    kwargs:
+      test_pos_mode: False
+      mask_all_gt_tokens: True
+  tester:
+    type: TesterMAEDev
+  use_ceph: True
+  sync: True
+  collate: dev
+  model_entry_kwargs: 
+    test_flag: image_caption
+
+tasks:
+  0:
+    name: Image_Caption_Test
+    loss_weight: 1.0
+    gres_ratio: 1  # int, > 0| world/sum*ratio
+    dataset:
+      type: CocoCaption
+      kwargs:
+        split_type: test
+        beam_size: 1
+        cuhk_peds: True
+        joint_train: False
+        cuhk_peds_anno_root: /mnt/path...to.../textreid/reid_test_raw_new.json
+        cuhk_peds_gt_root: /mnt/path...to.../textreid/reid_test_raw_gt.json
+    sampler:
+      batch_size: 128 # per card

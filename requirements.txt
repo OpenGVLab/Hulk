@@ -1,0 +1,8 @@
+einops
+scipy
+easydict
+dict_recursive_update==1.0.1
+timm==0.9.2
+xformers==0.0.20
+xtcocotools==1.13
+

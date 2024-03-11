@@ -1,0 +1,4466 @@
+# task 0: attr, task 1: pose, task 2:caption task3: parsing task4: smpl, task 5: det
+# fixed parameter with diverse shape among different tasks should also be set in the task_spec_list,
+# e.g., text_vectors, pos_embed, etc.
+
+
+# attr: 5: multi_rap2_PA_100k_parse27k_market_HARDHC 6: luperson
+# caption: 7: image_caption_joint
+# skeleton action: 0: ntu60+ntu120+gym 1: k400+diving48+gym
+# smpl: 2: 3dpw , human3.6m , coco , muco , up3d , mpii , gta_human
+# det: 3: Crowdhuman 4: 5set
+# pose: 8: coco 9:aic 10: human3.6m 11: posetrack 12: jrdb 13: MHP 14: mpii 15: 3dpw 16: aist++
+# parsing: 17:LIP 18:CIHP 19: human3.6m 20: modanet 21: VIP 22: deepfashion 23: PaperDoll
+
+
+
+common:  # prefix
+  share_backbone_group:              [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+         0,  0,  0,  0,  0,  0,  0,  0]
+  share_decoder_group:               [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+         0,  0,  0,  0,  0,  0,  0,  0]
+  # use modality groups to control the communication of neck, adapter, and output proj
+  share_rgb_group:                   [-1, -1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+         0,  0,  0,  0,  0,  0,  0,  0]  # rgb
+  share_dense_labeling_group:        [-1, -1, -1, -1, -1, -1, -1, -1,  0,  0,  0,  0,  0,  0,  0,  0,
+         0,  0,  0,  0,  0,  0,  0,  0]  # dense_labeling
+  share_text_group:                  [0,  0, -1, -1, -1,  0,  0,  0, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1]  # text
+  share_sparse_labeling_group:       [  0,  0,  0,  0,  0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1]
+  share_video_group:                 [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1]
+  # share modality is truly the share task group, e.g., parsing datasets share a group
+  share_modality_group:              [ 2,  2,  3,  4,  4,  0,  0,  1,  5,  5,  5,  5,  5,  5,  5,  5,
+         5,  6,  6,  6,  6,  6,  6,  6 ]
+
+
+  solver:
+    type: SolverMAEDev
+
+  model_entry_type: aio_entry_v2mae_shareneck
+
+
+  lr_scheduler:
+    type: 'Cosine'
+    kwargs:
+      eta_min: 0.
+      base_lr: 1.e-5
+      warmup_lr: 1.e-3
+      warmup_steps: 1500
+
+  backbone_multiplier: 1.
+  pos_embed_multiplier: 1.
+  layer_decay:
+    num_layers: 12
+    layer_decay_rate: 0.75
+    lpe_lr: True
+
+  optimizer:
+    type: Adafactor_dev
+    kwargs:
+      beta1: 0.9
+      clip_beta2: 0.999
+      clip_threshold: 1.
+      decay_rate: -0.8
+      scale_parameter: False
+      relative_step: False
+      weight_decay: 0.05
+
+  auto_denan: False
+
+  workers: 2
+  max_iter: 60000 #61446  # 0.1628001628001628 * |61446 for 149813 // 512 * 210
+
+  deterministic: True   # seed control
+  cudnn_deterministic: False
+  worker_rank: True
+  random_seed: 233
+
+  print_freq: 10
+  verbose_loss: False
+  vis_batch: False
+  save_interval: 10000
+
+  use_ceph: True
+  sync: True
+  collate: det
+
+# task_specific_param = ['backbone', 'neck', 'decoder', 'dataset', 'sampler', 'lr_scheduler', 'optimizer']
+tasks :  # prefix
+
+
+  0:
+    name: NUTRGBD_skeleton   #SPECIFIC
+    loss_weight: 4.4
+    gres_ratio: 2 # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: False
+        drop_path_rate: 0.1
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: mmSkeletonDataset  # train for 150 epochs
+      kwargs:
+        ann_file:
+          - /mnt/path...to...//skaction_public/ntu60_hrnet.pkl
+          - /mnt/path...to...//skaction_public/ntu120_hrnet.pkl
+          - /mnt/path...to...//skaction_public/gym_hrnet.pkl
+        dataset_name:
+          - 2dntu60
+          - 2dntu120
+          - gym
+        kp_dim: 2d  #SPECIFIC
+        one_hot: True
+        num_classes:
+          - 60
+          - 120
+          - 99
+        centernorm: False
+        scale_range: [ 0.75,1.25 ]
+        data_pipeline:
+          - type: PreNormalize2D
+            kwargs: { }
+          - type: GenSkeFeat
+            kwargs:
+              dataset: coco
+              feats: [ 'j' ]
+          - type: UniformSampleGivenFrames
+            kwargs:
+              clip_len: 25
+              given_len: 7
+          - type: PoseDecode
+            kwargs: { }
+          - type: FormatGCNInput2D
+            kwargs:
+              num_person: 2
+              window: False
+              rotate: True
+              mode: zero
+          - type: Collect
+            kwargs:
+              keys: [ 'keypoint', 'label' ]
+              meta_keys: [ ]
+          - type: ToTensor
+            kwargs:
+              keys: [ 'keypoint' ]
+        flip: True
+
+
+    sampler:
+      batch_size: 120  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: sparse_labeling
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: text
+
+    patch_adapter:
+      type: sparse_labeling_adapter_skaction
+      kwargs:
+        pretrained: True # should be changed to True later
+        in_chans: 3
+        num_joints: 17  #SPECIFIC
+        num_frames: 175
+        embed_dim: 768
+        patch_size: [ 7, 2 ]
+        stride_level: [ 1, 1 ]
+        use_abs_pos_emb: True
+        learnable_pos: False
+        test_pos_mode: learnable_interpolate
+        type_embed: False
+        joint_with_text_embedding: True
+        joint_names: coco_body_17joints  #SPECIFIC
+        proj_norm: 'LN'
+        stride_text_embedding: True
+        is_2d_dataset: True  #SPECIFIC
+        modality_share_list: [
+          'merge_kernel',
+          'proj_kernel',
+          'proj', ]
+        task_sp_list: [ 'text_embedding', 'pos_embed', ]
+
+
+    patch_proj:
+      type: sparse_labeling_projector
+      kwargs:
+        task: skeleton
+        loss_cfg:
+          type: MaskDetFocalDiceLoss
+          kwargs:
+            cfg:
+              deep_supervision: True
+              focal_alpha: 0.25
+              class_weight: 2.0
+              bbox_weight: 5.0
+              giou_weight: 2.
+              ign_thr: 0.7
+              dec_layers: 6
+              num_classes: 1
+              predict3d: True
+              xyxy: True
+        in_chans: 3  # predefined in patch adapter, set in solver
+        num_joints: 17 #SPECIFIC
+        num_frames: 175
+        modality_share_list: [
+          'output_proj',
+          'translate_weight',
+          'translate_bias',
+          'post_mul_norm',
+          'patch_proj',
+          'class_proj'
+        ]
+        task_sp_list: [
+          'text_vectors',  # useless
+          'text_features',
+        ]
+
+    label_adapter:
+      type: text_adapter
+      kwargs:
+        pretrained: True
+        #close_set: True
+        description_dict_name:
+          - ntu60_name
+          - ntu120_name
+          - gym_cls_name
+        one_way_semantics: False
+        skeleton_action: True # use skeleton action to Double the text embedding (when M=2)
+        skeleton_action_one_hot_label: True
+        task_sp_list: [ 'text_vectors', ]
+
+    label_proj:
+      type: text_projector
+      kwargs:
+        one_way_semantics: False
+        description_dict_name:
+          - ntu60_name
+          - ntu120_name
+          - gym_cls_name
+        skeleton_action: True
+        skeleton_action_one_hot_label: True
+        pre_proj_type: 'pool'
+        replace_post_mul_norm: False
+        post_mul_norm: True
+        task_sp_list: [ 'text_vectors',
+                        'translate_weight',
+                        'translate_bias',
+                        'post_mul_norm', ]
+        loss_cfg:
+          type: CELoss
+          kwargs:
+            loss_weight: 1.0
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token', ]
+        task_sp_list: [
+          'predictor.query_embed_patch',
+          'predictor.query_embed_label',
+          'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20 # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          self_attn_mask_type: patch_diag_label_row
+          detach_from_peddet: True
+
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  1:
+    name: k400_skeleton   #SPECIFIC
+    loss_weight: 1
+    gres_ratio: 1  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: False
+        drop_path_rate: 0.1
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: mmSkeletonDataset  # train for 150 epochs
+      kwargs:
+        ann_file:
+          - /mnt/path...to.../skaction_public/diving48_hrnet.pkl
+          - /mnt/path...to.../skaction_public/ucf101_hrnet.pkl
+          - /mnt/path...to.../skaction_public/k400_hrnet.pkl
+        dataset_name:
+          - diving
+          - ucf
+          - k400
+        kp_dim: 2d  #SPECIFIC
+        one_hot: True
+        num_classes:
+          - 48
+          - 101
+          - 400
+        centernorm: False
+        scale_range: [ 0.75,1.25 ]
+        data_pipeline:
+          - type: PreNormalize2D
+            kwargs: { }
+          - type: GenSkeFeat
+            kwargs:
+              dataset: coco
+              feats: [ 'j' ]
+          - type: UniformSampleGivenFrames
+            kwargs:
+              clip_len: 25
+              given_len: 7
+          - type: PoseDecode
+            kwargs: { }
+          - type: FormatGCNInput2D
+            kwargs:
+              num_person: 2
+              window: False
+              rotate: True
+              mode: zero
+          - type: Collect
+            kwargs:
+              keys: [ 'keypoint', 'label' ]
+              meta_keys: [ ]
+          - type: ToTensor
+            kwargs:
+              keys: [ 'keypoint' ]
+        flip: True
+
+
+    sampler:
+      batch_size: 90  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: sparse_labeling
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: text
+
+    patch_adapter:
+      type: sparse_labeling_adapter_skaction
+      kwargs:
+        pretrained: True # should be changed to True later
+        in_chans: 3
+        num_joints: 17  #SPECIFIC
+        num_frames: 175
+        embed_dim: 768
+        patch_size: [ 7, 2 ]
+        stride_level: [ 1, 1 ]
+        use_abs_pos_emb: True
+        learnable_pos: False
+        test_pos_mode: learnable_interpolate
+        type_embed: False
+        joint_with_text_embedding: True
+        joint_names: coco_body_17joints  #SPECIFIC
+        proj_norm: 'LN'
+        stride_text_embedding: True
+        is_2d_dataset: True  #SPECIFIC
+        modality_share_list: [
+          'merge_kernel',
+          'proj_kernel',
+          'proj', ]
+        task_sp_list: [ 'text_embedding', 'pos_embed', ]
+
+
+    patch_proj:
+      type: sparse_labeling_projector
+      kwargs:
+        task: skeleton
+        loss_cfg:
+          type: MaskDetFocalDiceLoss
+          kwargs:
+            cfg:
+              deep_supervision: True
+              focal_alpha: 0.25
+              class_weight: 2.0
+              bbox_weight: 5.0
+              giou_weight: 2.
+              ign_thr: 0.7
+              dec_layers: 6
+              num_classes: 1
+              predict3d: True
+              xyxy: True
+        in_chans: 3  # predefined in patch adapter, set in solver
+        num_joints: 17 #SPECIFIC
+        num_frames: 175
+        modality_share_list: [
+          'output_proj',
+          'translate_weight',
+          'translate_bias',
+          'post_mul_norm',
+          'patch_proj',
+          'class_proj'
+        ]
+        task_sp_list: [
+          'text_vectors',  # useless
+          'text_features',
+        ]
+
+    label_adapter:
+      type: text_adapter
+      kwargs:
+        pretrained: True
+        description_dict_name:
+          - diving48_cls_name
+          - ucf101_cls_name
+          - k400_cls_name
+        one_way_semantics: False
+        skeleton_action: True # use skeleton action to Double the text embedding (when M=2)
+        skeleton_action_one_hot_label: True
+        task_sp_list: [ 'text_vectors', ]
+
+    label_proj:
+      type: text_projector
+      kwargs:
+        one_way_semantics: False
+        description_dict_name:
+          - diving48_cls_name
+          - ucf101_cls_name
+          - k400_cls_name
+        skeleton_action: True
+        skeleton_action_one_hot_label: True
+        pre_proj_type: 'pool'
+        replace_post_mul_norm: False
+        post_mul_norm: True
+        task_sp_list: [ 'text_vectors',
+                        'translate_weight',
+                        'translate_bias',
+                        'post_mul_norm', ]
+        loss_cfg:
+          type: CELoss
+          kwargs:
+            loss_weight: 1.0
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: [ 'predictor.mask_token', ]
+        task_sp_list: [
+          'predictor.query_embed_patch',
+          'predictor.query_embed_label',
+          'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20 # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          self_attn_mask_type: patch_diag_label_row
+          detach_from_peddet: True
+
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  2:
+    name: smpl
+    loss_weight: 0.5
+    gres_ratio: 3
+    dataset:
+      type: MeshTSVYamlDataset  # train for 150 epochs
+      kwargs:
+        is_composite: True
+        is_train: True
+        cv2_output: False
+        augmentation:
+          scale_factor: 0.25
+          noise_factor: 0.4
+          rot_factor: 30
+          img_res: 224
+        cfg:
+          data_path:
+             - /mnt/path...to.../Processed_SMPL/3dpw/dataset.pkl  # problem
+             - /mnt/path...to.../Processed_SMPL/human3.6m/dataset.pkl  #running
+             - /mnt/path...to.../Processed_SMPL/coco_smpl/dataset.pkl  # problem
+             - /mnt/path...to.../Processed_SMPL/muco/dataset.pkl  #running
+             - /mnt/path...to.../Processed_SMPL/up3d/dataset.pkl  # done
+             - /mnt/path...to.../Processed_SMPL/mpii/dataset.pkl  #done
+             - /mnt/path...to.../Processed_SMPL/gta_human/dataset_pkl/v2_dataset_1396913.pkl
+             - /mnt/path...to.../Processed_SMPL/gta_human/dataset_pkl/v2_dataset_200000.pkl
+             - /mnt/path...to.../Processed_SMPL/gta_human/dataset_pkl/v2_dataset_400000.pkl
+             - /mnt/path...to.../Processed_SMPL/gta_human/dataset_pkl/v2_dataset_600000.pkl
+             - /mnt/path...to.../Processed_SMPL/gta_human/dataset_pkl/v2_dataset_800000.pkl
+             - /mnt/path...to.../Processed_SMPL/gta_human/dataset_pkl/v2_dataset_1000000.pkl
+             - /mnt/path...to.../Processed_SMPL/gta_human/dataset_pkl/v2_dataset_1200000.pkl
+          root_path:
+             - /mnt/path...to.../Processed_SMPL/3dpw/images
+             - /mnt/path...to.../Processed_SMPL/human3.6m/images
+             - /mnt/path...to.../Processed_SMPL/coco_smpl/images
+             - /mnt/path...to.../Processed_SMPL/muco/images
+             - /mnt/path...to.../Processed_SMPL/up3d/images
+             - /mnt/path...to.../Processed_SMPL/mpii/images
+             - /mnt/path...to.../Processed_SMPL/gta_human_openxlab/gta_human
+             - /mnt/path...to.../Processed_SMPL/gta_human_openxlab/gta_human
+             - /mnt/path...to.../Processed_SMPL/gta_human_openxlab/gta_human
+             - /mnt/path...to.../Processed_SMPL/gta_human_openxlab/gta_human
+             - /mnt/path...to.../Processed_SMPL/gta_human_openxlab/gta_human
+             - /mnt/path...to.../Processed_SMPL/gta_human_openxlab/gta_human
+             - /mnt/path...to.../Processed_SMPL/gta_human_openxlab/gta_human
+
+    sampler:
+      batch_size: 165  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: sparse_labeling
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        use_abs_pos_emb: True
+        learnable_pos: False # useless
+        test_pos_mode: False
+        img_size: [ 224, 224 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: sparse_labeling_adapter
+      kwargs:
+        pretrained: True
+        in_chans: 3
+        num_joints: 446  # 1 + 14 + 431
+        num_frames: 1
+        embed_dim: 768
+        patch_size: [ 1,1 ]
+        stride_level: [ 1, 1 ]
+        use_abs_pos_emb: True
+        learnable_pos: False
+        test_pos_mode: learnable_interpolate
+        type_embed: False
+        proj_norm: 'LN'
+        task_sp_list: [ 'pos_embed',
+                        'text_embedding',
+                        'proj_kernel',
+                        'proj',]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: sparse_labeling_projector
+      kwargs:
+        task_sp_list: [ 'output_proj',
+                        'text_features',
+                        'loss_fn',
+                        'translate',
+                        'post_mul_norm',
+                        'patch_proj',
+                        'class_proj',
+                        'proj'
+        ]
+        pre_proj_type: 'fix_text_tokens'
+        num_classes: 14
+        # pred_joints_class: True
+        reference_type: 'smpl'
+        in_chans: 3 # XYZ
+        num_joints: 446
+        num_frames: 1
+        hidden_dim: 256
+        patch_size: [ 1, 1 ]
+        stride_level: [ 1, 1 ]
+        replace_post_mul_norm: False
+        task: smpl
+        # for smpl task, do not predict joints classes, so text_prototype and learn_text is not useful
+        text_prototype: True
+        learn_text: True
+        loss_cfg:
+          type: SMPL_LOSS_FASTMETRO
+          kwargs:
+            # use_pred_joints_class_loss: True
+            cfg:
+              use_smpl_param_regressor: True
+              joints_2d_loss_weight: 100.0
+              vertices_3d_loss_weight: 100.0
+              edge_normal_loss_weight: 100.0
+              joints_3d_loss_weight: 1000.0
+              vertices_fine_loss_weight: 0.25
+              vertices_intermediate_loss_weight: 0.50
+              vertices_coarse_loss_weight: 0.25
+              edge_gt_loss_weight: 5.0
+              edge_self_loss_weight: 1.e-4
+              normal_loss_weight: 0.1
+              smpl_param_loss_weight: 1000.0
+              except_smpl_param_loss_weight: 1.e-8
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [ 'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          smpl_attention_mask_flag: True
+          smpl_mae_pe: True
+          use_adapt_pos2d: True
+          use_adapt_pos1d: True
+          self_attn_mask_type: full
+          adding_per_layer_pe: True
+          detach_from_peddet: True
+          use_adapt_position: 'before'
+          use_smpl_label_attention_mask: True
+          label_pos_mode: 'smpl_xyz'
+        loss_cfg:
+          type: CEL_Sigmoid # useless
+
+  3:
+    name: Peddet
+    loss_weight: 15
+    gres_ratio: 8  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: PedestrainDetectionDataset_v2  # train for 150 epochs
+      kwargs:
+        task_spec:
+          img_folder:
+            - /mnt/path...to.../PedDet2d/CrowdHuman/Images
+          ann_file:
+            - /mnt/path...to.../PedDet2d/CrowdHuman/annotations/train.json
+          return_masks: False
+        augmentation:
+            max_size: 1120
+        vit: True
+        num_append_fake_boxes: 867
+        return_box_xyxy: True
+        append_z: True
+    sampler:
+      batch_size: 4  # per card
+      shuffle_strategy: 1
+      batch_accumulation: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        attn_calcul_method: 'math'
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: sparse_labeling
+
+    patch_adapter:
+      type: rgb_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        use_abs_pos_emb: True
+        test_pos_mode: interpolate_with_nomask
+        img_size: 1344 # dynamic input size: TODO: nested
+        round_padding: True  #  should fix in rgb
+        pad_attn_mask: True
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: sparse_labeling_adapter
+      kwargs:
+        pretrained: True
+        in_chans: 3  # xyz
+        num_joints: 867 # boxes with random gts
+        num_frames: 2   # 2 for x1y1 and x2y2
+        embed_dim: 768
+        patch_size: [ 2, 1 ]
+        stride_level: [ 1, 1 ]
+        use_abs_pos_emb: True
+        learnable_pos: False
+        test_pos_mode: learnable_interpolate
+        type_embed: False
+        proj_norm: 'LN'
+        task_sp_list: [ 'pos_embed',
+                        'text_embedding',
+                        'proj_kernel',
+                        'proj',
+                        'merge_kernel',
+        ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: sparse_labeling_projector
+      kwargs:
+        task_sp_list: [ 'text_vectors',  # useless
+                        'text_features',
+        ]
+        modality_share_list: [
+          'text_vectors',  # useless
+          'output_proj',
+          'translate_weight',
+          'translate_bias',
+          'post_mul_norm',
+          'patch_proj',
+          'class_proj'
+        ]
+        in_chans: 3
+        num_joints: 867 # boxes with random gts
+        num_frames: 2   # 2 for x1y1 and x2y2
+        pre_proj_type: fix_text_tokens
+        num_classes: 1
+        reference_type: four_points
+        box_mlp: True
+        replace_post_mul_norm: True
+        translate_weight_scale: 4
+        text_prototype: True
+        loss_cfg:
+          type: MaskDetFocalDiceLoss
+          kwargs:
+            cfg:
+              deep_supervision: True
+              focal_alpha: 0.25
+              class_weight: 2.0
+              bbox_weight: 5.0
+              giou_weight: 2.
+              ign_thr: 0.7
+              dec_layers: 9
+              num_classes: 1
+              predict3d: True
+              xyxy: True
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.anchor',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20 # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          patch_pos_mode: interpolate_with_nomask
+          label_pos_mode: simple_interpolate
+          self_attn_mask_type: patch_diag_label_row_nested
+          adding_per_layer_pe: True
+          mask_token_normal_init: True
+          intermediate_output: True
+          peddet_cfgs:
+            share_content_query: 3
+            num_queries: 867
+            pre_defined_path: '289_points_3d.npy'
+            query_pe_dim: 3
+            xattn: False
+            anchor_requires_grad: False
+
+        loss_cfg:
+          type: CEL_Sigmoid
+
+
+
+  4:
+    name: Peddet_5set
+    loss_weight: 42.4
+    gres_ratio: 20  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: PedestrainDetectionDataset_v2  # train for 150 epochs
+      kwargs:
+        task_spec:
+          img_folder:
+            - /mnt/path...to.../peddet_public/CrowdHuman/Images
+            - /mnt/path...to.../peddet_public/ECP/
+            - /mnt/path...to.../peddet_public/CityPersons/
+            - /mnt/path...to.../peddet_public/WiderPerson/Images
+            - /mnt/path...to.../peddet_public/coco/train2017/
+            - /mnt/path...to.../peddet_public/WIDER_Pedestrian/Images/
+          ann_file:
+            - /mnt/path...to.../peddet_public/CrowdHuman/annotations/train.json
+            - /mnt/path...to.../peddet_public/ECP/ECP_remove_no_person_img.json
+            - /mnt/path...to.../peddet_public/CityPersons/CityPersons_remove_no_person_img.json
+            - /mnt/path...to.../peddet_public/WiderPerson/WiderPerson_remove_no_person_img.json
+            - /mnt/path...to.../peddet_public/cocopersons/coco_person_remove_no_person_img.json
+            - /mnt/path...to.../peddet_public/WIDER_Pedestrian/WIDER_Pedestrian_remove_no_person_img.json
+          return_masks: False
+        augmentation:
+          max_size: 1120
+        vit: True
+        num_append_fake_boxes: 867
+        return_box_xyxy: True
+        append_z: True
+    sampler:
+      batch_size: 4  # per card
+      shuffle_strategy: 1
+      batch_accumulation: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        attn_calcul_method: 'math'
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: sparse_labeling
+
+    patch_adapter:
+      type: rgb_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        use_abs_pos_emb: True
+        test_pos_mode: interpolate_with_nomask
+        img_size: 1344
+        round_padding: True  #  should fix in rgb
+        pad_attn_mask: True
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: sparse_labeling_adapter
+      kwargs:
+        pretrained: True
+        in_chans: 3  # xyz
+        num_joints: 867 # boxes with random gts
+        num_frames: 2   # 2 for x1y1 and x2y2
+        embed_dim: 768
+        patch_size: [ 2, 1 ]
+        stride_level: [ 1, 1 ]
+        use_abs_pos_emb: True
+        learnable_pos: False
+        test_pos_mode: learnable_interpolate
+        type_embed: False
+        proj_norm: 'LN'
+        task_sp_list: [ 'pos_embed',
+                        'text_embedding',
+                        'proj_kernel',
+                        'proj',
+                        'merge_kernel',
+        ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: sparse_labeling_projector
+      kwargs:
+        task_sp_list: [ 'text_vectors',  # useless
+                        'text_features',
+        ]
+        modality_share_list: [
+          'text_vectors',  # useless
+          'output_proj',
+          'translate_weight',
+          'translate_bias',
+          'post_mul_norm',
+          'patch_proj',
+          'class_proj'
+        ]
+        in_chans: 3
+        num_joints: 867 # boxes with random gts
+        num_frames: 2   # 2 for x1y1 and x2y2
+        pre_proj_type: fix_text_tokens
+        num_classes: 1
+        reference_type: four_points
+        box_mlp: True
+        replace_post_mul_norm: True
+        translate_weight_scale: 4
+        text_prototype: True
+        loss_cfg:
+          type: MaskDetFocalDiceLoss
+          kwargs:
+            cfg:
+              deep_supervision: True
+              focal_alpha: 0.25
+              class_weight: 2.0
+              bbox_weight: 5.0
+              giou_weight: 2.
+              ign_thr: 0.7
+              dec_layers: 9
+              num_classes: 1
+              predict3d: True
+              xyxy: True
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: [ 'predictor.mask_token' ]
+        task_sp_list: [
+          'predictor.query_embed_patch',
+          'predictor.query_embed_label',
+          'predictor.anchor',
+          'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+#          lms_checkpoint_train: fairscale
+          hidden_dim: 256
+          num_queries: 20 # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          patch_pos_mode: interpolate_with_nomask
+          label_pos_mode: simple_interpolate
+          self_attn_mask_type: patch_diag_label_row_nested
+          adding_per_layer_pe: True
+          mask_token_normal_init: True
+          intermediate_output: True
+          peddet_cfgs:
+            share_content_query: 3
+            num_queries: 867
+            pre_defined_path: '289_points_3d.npy'
+            query_pe_dim: 3
+            xattn: False
+            anchor_requires_grad: False
+
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  5: # prefix
+    name: pedattr_multi_rap2_PA_100k_parse27k_market_HARDHC
+    loss_weight: 5
+    gres_ratio: 1  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+    dataset:
+      type: MultiAttrDataset
+      kwargs:
+        text_label_return: True
+        task_spec:
+          dataset:
+            - rap2
+            - PA_100k
+            - parse27k
+            - market
+            - HARDHC
+          data_path:
+            - /mnt/path...to.../pedattr_public/rap2/dataset.pkl
+            - /mnt/path...to.../pedattr_public/PA-100k/dataset.pkl
+            - /mnt/path...to.../pedattr_public/Parse27k/parse27k/parse27k/dataset.pkl
+            - /mnt/path...to.../pedattr_public/market/dataset.pkl
+            - /mnt/path...to.../pedattr_public/HARDHC/dataset.pkl
+          root_path:
+            - /mnt/path...to.../pedattr_public/rap2/RAP_dataset/
+            - /mnt/path...to.../pedattr_public/PA-100k/data/
+            - /mnt/path...to.../pedattr_public/Parse27k/parse27k/parse27k/images
+            - /mnt/path...to.../pedattr_public/market/bounding_box_train
+            - /mnt/path...to.../pedattr_public/HARDHC/croped_image/
+        augmentation:
+          height: 256
+          width: 192
+
+    sampler:
+      batch_size: 147 # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [256, 192]
+        task_sp_list: [ 'pos_embed' ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_adapter:
+      type: text_adapter
+      kwargs:
+        pretrained: True
+        task_sp_list: ['text_vectors']
+        one_way_semantics: True
+        description_dict_name: 'multi_rap2_PA_100k_parse27k_market_HARDHC_attr_name'
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: text
+    label_proj:
+      type: text_projector
+      kwargs:
+        task_sp_list: ['text_vectors',
+                       'translate_weight',
+                       'translate_bias',
+                        'post_mul_norm',]
+        one_way_semantics: True
+        post_mul_norm: True
+        replace_post_mul_norm: False
+        translate_weight_scale: 5
+        description_dict_name: 'multi_rap2_PA_100k_parse27k_market_HARDHC_attr_name'
+        pre_proj_type: ''
+        loss_cfg:
+          type: MaskedOneSideBCELoss
+          kwargs:
+            use_focal_weight: True
+            loss_weight: 1.
+            dataset_weight: [ 0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.5,
+                              0.5, 0.5, 0.5, 0.5, 0.25,
+                              0.25, 0.25, 0.25, 0.25, 0.25,
+                              0.25, 0.25, 0.25, 0.25, 0.25,
+                              0.25, 0.25, 0.25, 0.25, 0.25,
+                              0.25, 0.25, 0.25, 0.25, 0.25,
+                              0.25, 0.25, 0.25, 0.25, 0.25,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, 1.0, 1.0,
+                              1.0, 1.0, 1.0, ]
+            sample_weight: [0.00172477, 0.05791431, 0.2792891 , 0.00459644, 0.01987675,
+       0.06484867, 0.02327336, 0.01420398, 0.06937013, 0.03476447,
+       0.08533858, 0.0091179 , 0.0125145 , 0.02894172, 0.00816949,
+       0.17255632, 0.00890175, 0.00613153, 0.00838123, 0.07975844,
+       0.03529381, 0.07885856, 0.06067129, 0.02532455, 0.00429207,
+       0.06790121, 0.02532014, 0.00639179, 0.02070164, 0.00790041,
+       0.01142935, 0.00823125, 0.00310547, 0.00732696, 0.08890281,
+       0.00265994, 0.12081324, 0.16404275, 0.010578  , 0.09486231,
+       0.040896  , 0.23313939, 0.02223673, 0.28135352, 0.01603462,
+       0.01012806, 0.00799305, 0.01450835, 0.00697848, 0.00314958,
+       0.00536399, 0.00762692, 0.03982408, 0.00306577,  # rap2
+             0.01728739, 0.0714522 , 0.23161312, 0.16539257, 0.01964296,
+             0.0599655 , 0.04277957, 0.01663895, 0.00187475, 0.00670499,
+             0.0128674 , 0.28255336, 0.06885843, 0.0455939 , 0.00238203,
+             0.07344605, 0.07651623, 0.06356061, 0.00378038, 0.00534193,
+             0.36698324, 0.02468052, 0.18279907, 0.14001068, 0.1169667 ,
+             0.14002832, # pa100k
+             0.00080283, 0.04727897, 0.05596016, 0.00868119, 0.00850474,
+             0.00013234, 0.02891966, 0.0113279 , 0.00466261, 0.00932522,
+             0.04154444, 0.00932522, 0.00466261, 0.0113279 , 0.0128277 ,
+             0.05136371, 0.05703648, 0.00839005, 0.00951049, 0.10332735,
+             0.04794505, 0.01736679, 0.05591605, 0.04794505, 0.01736679,
+             0.05591605, 0.04949779, 0.01482155, 0.05690856, 0.04949779,
+             0.01482155, 0.05690856, 0.00515225, 0.00014998, 0.11592566,
+             0.02974014, 0.00336131, 0.08812644, 0.00546986, 0.00292902,
+             0.11282902, 0.03215746, 0.00087341, 0.08819702, # parse27k
+             0.01577436, 0.01377169, 0.00681968, 0.02183531, 0.00826654,
+             0.00613153, 0.0091179 , 0.00096605, 0.00241732, 0.00012792,
+             0.00481259, 0.00091752, 0.00754752, 0.00346277, 0.00502433,
+             0.00635209, 0.00219676, 0.00692113, 0.01726093, 0.00282756,
+             0.04876553, 0.03532027, 0.05422657, 0.01836813, 0.00129247,
+             0.0237233 , 0.00093958, 0.04455727, 0.01074562, 0.00082048, # market
+             0.07086552, 0.02805507, 0.0062771 , 0.02825357, 0.0273978 ,
+             0.05809076, 0.00874295, 0.01927683, 0.01020305, 0.04525424,
+             0.01257185, 0.00412004, 0.03352934, 0.00677998, # HARDHC
+            ]
+
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          self_attn_mask_type: patch_diag_label_row
+          cls_out_dim: 1
+          detach_from_peddet: True
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  6: # prefix
+    name: attr_luperson
+    loss_weight: 5
+    gres_ratio: 1  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+    dataset:
+      type: MultiAttrDataset
+      kwargs:
+        text_label_return: True
+        task_spec:
+          dataset:
+            - lup_0_600w
+            - lup_600_1200w
+          data_path:
+            - /mnt/path...to.../attribute/dataset_0_600w_pjlab.pkl
+            - /mnt/path...to.../attribute/dataset_600_1200w_pjlab.pkl
+          root_path:
+            - /mnt/path...to.../reid/LUPerson-NL/LUPws
+            - /mnt/path...to.../reid/LUPerson-NL/LUPws
+        augmentation:
+          height: 256
+          width: 192
+
+    sampler:
+      batch_size: 300 # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    patch_adapter:
+      type: rgb_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [ 256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_adapter:
+      type: text_adapter
+      kwargs:
+        pretrained: True
+        task_sp_list: [ 'text_vectors' ]
+        one_way_semantics: True
+        description_dict_name: 'lup_lup_attr_base'
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: text
+    label_proj:
+      type: text_projector
+      kwargs:
+        task_sp_list: [ 'text_vectors',
+                        'translate_weight',
+                        'translate_bias',
+                        'post_mul_norm', ]
+        one_way_semantics: True
+        post_mul_norm: True
+        replace_post_mul_norm: False
+        translate_weight_scale: 5
+        description_dict_name: 'lup_lup_attr_base'
+        pre_proj_type: ''
+        loss_cfg:
+          type: MaskedOneSideBCELoss
+          kwargs:
+            loss_weight: 1.
+            use_focal_weight: True
+            sample_weight: [ 3.705390e-01, 6.184500e-03, 6.679500e-03, 9.445730e-01,
+                             3.924500e-02, 4.686065e-01, 7.492855e-01, 6.642300e-02,
+                             7.882115e-01, 1.606450e-02, 1.043025e-01, 8.040050e-02,
+                             1.102100e-02, 5.510935e-01, 4.074950e-02, 1.142160e-01,
+                             3.731000e-02, 5.566250e-02, 1.852115e-01, 1.524850e-02,
+                             5.085000e-04, 9.421990e-01, 1.484350e-02, 3.347200e-02,
+                             5.750000e-03, 3.735500e-03, 1.509560e-01, 3.741515e-01,
+                             3.318200e-02, 2.215850e-02, 4.213145e-01, 5.177550e-02,
+                             3.974550e-02, 3.878800e-01, 1.321270e-01, 1.337740e-01,
+                             9.478400e-02, 3.324350e-02, 1.095815e-01, 2.231600e-02,
+                             1.592250e-02, 2.386005e-01, 1.999500e-01, 1.321300e-02,
+                             7.382405e-01, 4.859650e-02, 2.932510e-01, 8.297100e-02,
+                             9.567325e-01, 2.430700e-02, 3.554500e-03, 1.751500e-03, #lup_0_600w
+                             3.705390e-01, 6.184500e-03, 6.679500e-03, 9.445730e-01,
+                             3.924500e-02, 4.686065e-01, 7.492855e-01, 6.642300e-02,
+                             7.882115e-01, 1.606450e-02, 1.043025e-01, 8.040050e-02,
+                             1.102100e-02, 5.510935e-01, 4.074950e-02, 1.142160e-01,
+                             3.731000e-02, 5.566250e-02, 1.852115e-01, 1.524850e-02,
+                             5.085000e-04, 9.421990e-01, 1.484350e-02, 3.347200e-02,
+                             5.750000e-03, 3.735500e-03, 1.509560e-01, 3.741515e-01,
+                             3.318200e-02, 2.215850e-02, 4.213145e-01, 5.177550e-02,
+                             3.974550e-02, 3.878800e-01, 1.321270e-01, 1.337740e-01,
+                             9.478400e-02, 3.324350e-02, 1.095815e-01, 2.231600e-02,
+                             1.592250e-02, 2.386005e-01, 1.999500e-01, 1.321300e-02,
+                             7.382405e-01, 4.859650e-02, 2.932510e-01, 8.297100e-02,
+                             9.567325e-01, 2.430700e-02, 3.554500e-03, 1.751500e-03 # lup_600_1200w
+            ]
+
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [ # 'predictor.text_features',
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        # 'predictor.mask_token',
+                        # 'predictor.text_pe',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          self_attn_mask_type: patch_diag_label_row
+          cls_out_dim: 1
+          detach_from_peddet: True
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  7:
+    name: image_caption_joint
+    loss_weight: 90
+    gres_ratio: 3  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: CocoCaption
+      kwargs:
+        bert_dir: /mnt/path...to.../Hulk/experiments/release/bert-base-uncased
+        max_words: 40
+        img_size: 384
+        prompt: ''
+        split_type: train
+        joint_train: True
+        joint_train_anno_root: /mnt/path...to.../textreid/joint_reid_caption_train.json
+        synth_peds_root: /mnt/path...to.../textreid/SYNTH-PEDES/
+        cuhk_peds_root: /mnt/path...to.../textreid/CUHK-PEDES/imgs/
+        mals_root: /mnt/path...to.../textreid/MALS
+        luperson_root: /mnt/path...to.../textreid/LUPerson-T/imgs/
+
+    sampler:
+      batch_size: 100  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: text
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [ 384, 384 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: text_adapter
+      kwargs:
+        image_caption: True
+        pretrained: True
+        max_tokens: 40
+        task_sp_list: [ ]
+
+    # fix kwargs of the project, which should be the same as that in the adapter, such as
+    # hidden_dim, patch_size, in_chans, stride_level are set in the solver - create_modal
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: text_projector
+      kwargs:
+        description_dict_name: caption_bert
+        image_caption: True
+        one_way_semantics: True
+        post_mul_norm: True
+        loss_cfg:
+          type: LabelSmoothingCrossEntropy
+          kwargs:
+            epsilon: 0.1
+            loss_weight: 1.
+        task_sp_list: [ 'post_mul_norm',
+                        'text_vectors',
+                        'loss_fn']
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.mask_token_buffer',
+                        'predictor.mask_token_proj',
+                        'predictor.captiontoken_ln',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          self_attn_mask_type: caption_mask
+          caption_cfgs: { nn.parameter: True, vocal_size: 30522, lndo: True ,bert_feats_for_embedding: True }
+          mask_token_normal_init: True
+          detach_from_peddet: True
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  8:
+    name: cocopose_256x192
+    loss_weight: 28000
+    gres_ratio: 3  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: COCOPosDatasetDev
+      kwargs:
+        ann_file: /mnt/path...to.../pose_public/coco/annotations/person_keypoints_train2017.json
+        img_prefix: /mnt/path...to.../pose_public/coco/train2017/
+        use_udp: True
+        data_use_ratio: 1
+        data_cfg: {
+                    'image_size':[192, 256],
+                    'heatmap_size':[48, 64], # originally, 'heatmap_size':[48, 64]
+                    'num_output_channels': 17,
+                    'num_joints': 17,
+                    'dataset_channel': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],],
+                    'inference_channel': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                    'soft_nms': False,
+                    'nms_thr': 1.0,
+                    'oks_thr': 0.9,
+                    'vis_thr': 0.2,
+                    'use_gt_bbox': False,
+                    'det_bqbox_thr': 0.0,
+                    'bbox_file': './COCO_val2017_detections_AP_H_56_person.json'
+                }
+    sampler:
+      batch_size: 176  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [  256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter: # for supervised training, the results of label adapter is useless
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 17   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [  256, 192 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed',]
+
+    # fix kwargs of the project, which should be the same as that in the adapter, such as
+    # hidden_dim, patch_size, in_chans, stride_level are set in the solver - create_modal
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                        'loss_fn',
+                         'upsample_network',
+                         'text_features',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1
+        cls_loss_branch: True
+        description_dict_name: checked_pose_coco_name # this key is only valid when we set text_prototype to be True
+        upsample_hidden_dim: 256
+        task: pose
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 17
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [ 0.38647058, 0.33606767, 0.33835369, 0.29253424, 0.29636332,
+                               0.4987484 , 0.49978854, 0.39467358, 0.40091822, 0.36039853,
+                               0.36918446, 0.43343303, 0.4345989 , 0.32999829, 0.33092793,
+                               0.27714171, 0.27754939 ]
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+                                              # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+                                              # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: full                            # full for all attention
+                                                               # type of mask for self-attention,
+                                                               # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  9:
+    name: aic
+    loss_weight: 56000
+    gres_ratio: 7  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: MultiPoseDatasetDev
+      kwargs:
+        dataset_name: aic
+        ann_file: /mnt/path...to.../pose_public/ai_challenge/annotations/aic_train.json
+        img_prefix: /mnt/path...to.../pose_public/ai_challenge/ai_challenger_keypoint_train_20170902/keypoint_train_images_20170902/
+        use_udp: True
+        data_use_ratio: 1
+        data_cfg: {
+          'image_size': [ 192, 256 ],
+          'heatmap_size': [ 48, 64 ], # originally, 'heatmap_size':[48, 64]
+          'num_output_channels': 14,
+          'num_joints': 14,
+          'dataset_channel': [ [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 ], ],
+          'inference_channel': [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 ],
+
+          'flip_pairs': [ [ 0, 3 ], [ 1, 4 ], [ 2, 5 ], [ 6, 9 ], [ 7, 10 ], [ 8, 11 ], ],
+          'upper_body_ids': [ 0, 1, 2, 3, 4, 5, 12, 13 ],
+          'lower_body_ids': [ 6, 7, 8, 9, 10, 11 ],
+          'use_different_joint_weights': False,
+          'joint_weights': [ 1., 1.2, 1.5, 1., 1.2, 1.5, 1., 1.2, 1.5, 1., 1.2, 1.5, 1., 1. ],
+
+          'soft_nms': False,
+          'nms_thr': 1.0,
+          'oks_thr': 0.9,
+          'vis_thr': 0.2,
+          'use_gt_bbox': False,
+          'det_bqbox_thr': 0.0,
+          'bbox_file': './COCO_val2017_detections_AP_H_56_person.json'
+        }
+    sampler:
+      batch_size: 189  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [ 256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 14   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [ 256, 192 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed', ]
+
+    # fix kwargs of the project, which should be the same as that in the adapter, such as
+    # hidden_dim, patch_size, in_chans, stride_level are set in the solver - create_modal
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                         'upsample_network',
+                        'loss_fn',
+                        'text_features', ]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        cls_loss_branch: True
+        description_dict_name: checked_pose_aic_name # this key is only valid when we set text_prototype to be True
+        task: pose
+        upsample_hidden_dim: 256
+   # dim of hidden features in upsampling network
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 14
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [ 0.98064613, 0.977893565, 0.97715356, 0.98064613, 0.977893565,
+                               0.97715356, 0.9594528200000001, 0.85703431, 0.7504981850000001,
+                               0.9594528200000001, 0.85703431, 0.7504981850000001, 0.97149646, 0.98605877 ]
+
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                         'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          label_pos_mode: False
+          self_attn_mask_type: full
+          detach_from_peddet: True
+          adding_per_layer_pe: True
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  10:
+    name: h36m_pose_256x256
+    loss_weight: 3192
+    gres_ratio: 2  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: COCOPosDatasetDev
+      kwargs:
+        ann_file: /mnt/path...to.../pose_public/h36m/processed/annotation_body2d/h36m_coco_train.json
+        img_prefix: /mnt/path...to.../pose_public/h36m/processed/images/
+        use_udp: True
+        data_use_ratio: 1
+        data_cfg: {
+          'image_size': [ 256, 256 ],
+          'heatmap_size': [ 64, 64 ], # originally, 'heatmap_size':[48, 64]
+          'num_output_channels': 17,
+          'num_joints': 17,
+          'dataset_channel': [ [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 ], ],
+          'inference_channel': [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 ],
+          'soft_nms': False,
+          'nms_thr': 1.0,
+          'oks_thr': 0.9,
+          'vis_thr': 0.2,
+          'use_gt_bbox': True,
+          'det_bqbox_thr': 0.0,
+          'bbox_file': './COCO_val2017_detections_AP_H_56_person.json'
+        }
+    sampler:
+      batch_size: 132  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [ 256, 256 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 17   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [ 256, 256 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        'loss_fn',
+                                  'upsample_network',
+                        'text_features', ]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        cls_loss_branch: True
+        description_dict_name: checked_pose_h3m6_name # this key is only valid when we set text_prototype to be True
+        upsample_hidden_dim: 256
+        task: pose
+
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 17
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [ 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1. ]
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: [ 'predictor.mask_token' ]
+        task_sp_list: [
+          'predictor.query_embed_patch',
+          'predictor.query_embed_label',
+          'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          label_pos_mode: False
+          self_attn_mask_type: full                            # full for all attention
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  11:
+    name: posetrack_256x192
+    loss_weight: 12335
+    gres_ratio: 2 # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: MultiPoseDatasetDev
+      kwargs:
+        ann_file: /mnt/path...to.../pose_public/PoseChallenge2018/annotations/posetrack18_train.json
+        img_prefix: /mnt/path...to.../pose_public/PoseChallenge2018/
+        use_udp: True
+        dataset_name: 'posetrack'
+        data_cfg: {
+                      'image_size':[192, 256],
+                      'heatmap_size':[48, 64],
+                      'num_output_channels': 15,
+                      'num_joints': 15,
+                      'dataset_channel': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],],
+                      'inference_channel': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+
+                      'flip_pairs': [[3, 4], [5, 6], [7, 8], [9, 10], [11, 12], [13, 14], ],
+                      'upper_body_ids': [0, 1, 2, 3, 4, 5, 6, 7, 8,],
+                      'lower_body_ids': [9, 10, 11, 12, 13, 14],
+                      'use_different_joint_weights': False,
+                      'joint_weights': [1., 1., 1., 1., 1., 1.2, 1.2, 1.5, 1.5, 1., 1., 1.2, 1.2, 1.5, 1.5],
+
+                      'soft_nms': False,
+                      'nms_thr': 1.0,
+                      'oks_thr': 0.9,
+                      'vis_thr': 0.2,
+                      'use_gt_bbox': True,
+                      'det_bbox_thr': 0.0,
+                      'bbox_file': 'COCO_val2017_detections_AP_H_56_person.json'
+                }
+    sampler:
+      batch_size: 170  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [  256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 15   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [  256, 192 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed',]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        'loss_fn',
+                        'upsample_network',
+                         'text_features',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        cls_loss_branch: True
+        description_dict_name: checked_pose_posetrack_name # this key is only valid when we set text_prototype to be True
+        upsample_hidden_dim: 256
+        task: pose
+
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 15
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [ 0.81831569, 0.75692071, 0.74175951,
+                              0.789882655, 0.789882655, 0.659771425, 0.659771425, 0.625614735,
+                              0.625614735, 0.737772405, 0.737772405, 0.665022735, 0.665022735,
+                              0.59563039, 0.5956303
+ ]
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9 # currently 6 layers for debug but we should use 9 layers afterwards
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+                                              # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+                                              # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: full                            # full for all attention
+                                                               # type of mask for self-attention,
+                                                               # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  12:
+    name: jrdb_256x192
+    loss_weight: 8223
+    gres_ratio: 2  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: MultiPoseDatasetDev
+      kwargs:
+        ann_file: /mnt/path...to.../pose_public/JRDB2019/train.json
+        img_prefix: /mnt/path...to.../pose_public/JRDB2022/images/
+        use_udp: True
+        dataset_name: 'JRDB2022'
+        data_cfg: {
+                      'image_size':[192, 256],
+                      'heatmap_size':[48, 64],
+                      'num_output_channels': 17,
+                      'num_joints': 17,
+                      'dataset_channel': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],],
+                      'inference_channel': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,],
+                      'flip_pairs': [[2, 5], [3, 6], [4, 7], [8, 11], [9, 12], [10, 13], ],
+                      'upper_body_ids': [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 14, 15, 16,],
+                      'lower_body_ids': [9, 10, 12, 13],
+                      'use_different_joint_weights': False,
+                      'joint_weights': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+
+                      'soft_nms': False,
+                      'nms_thr': 1.0,
+                      'oks_thr': 0.9,
+                      'vis_thr': 0.2,
+                      'use_gt_bbox': True,
+                      'det_bbox_thr': 0.0,
+          'bbox_file': 'COCO_val2017_detections_AP_H_56_person.json'
+
+        }
+    sampler:
+      batch_size: 170  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [ 256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter: # for supvervised training, the results of label adapter is useless
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 17   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [ 256, 192 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        'loss_fn',
+                                  'upsample_network',
+                        'text_features', ]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        cls_loss_branch: True
+        description_dict_name: checked_pose_jrdb_name # this key is only valid when we set text_prototype to be True
+        upsample_hidden_dim: 256
+        task: pose
+
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 17
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [
+                0.90384634, 0.82524231, 0.89927266, 0.90945538, 0.92796942, 0.89927266,
+                0.90945538, 0.92796942, 0.9912784,  0.84353379, 0.97898463, 0.9912784,
+                0.84353379, 0.97898463, 0.97418356, 0.94284516, 0.93372039,
+              ]
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: [ 'predictor.mask_token' ]
+        task_sp_list: [
+          'predictor.query_embed_patch',
+          'predictor.query_embed_label',
+          'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9 # currently 6 layers for debug but we should use 9 layers afterwards
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          label_pos_mode: False
+          self_attn_mask_type: full
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  13:
+    name: MHP_256x192
+    loss_weight: 3192
+    gres_ratio: 1  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: MultiPoseDatasetDev
+      kwargs:
+        ann_file: /mnt/path...to.../pose_public/pose_MHPv2/train.json
+        img_prefix: /mnt/path...to.../pose_public/pose_MHPv2/train/images
+        use_udp: True
+        dataset_name: 'mhp'
+        data_cfg: {
+                      'image_size':[192, 256],
+                      'heatmap_size':[48, 64],
+                      'num_output_channels': 16,
+                      'num_joints': 16,
+                      'dataset_channel': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,],],
+                      'inference_channel': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,],
+
+                      'flip_pairs': [[0, 5], [1, 4], [2, 3], [10, 15], [11, 14], [12, 13], ],
+                      'upper_body_ids': [7, 8, 9, 10, 11, 12, 13, 14, 15],
+                      'lower_body_ids': [0, 1, 2, 3, 4, 5, 6],
+                      'use_different_joint_weights': False,
+                      'joint_weights': [1.5, 1.2, 1., 1., 1.2, 1.5, 1., 1., 1., 1., 1.5, 1.2, 1., 1., 1.2, 1.5],
+
+                      'soft_nms': False,
+                      'nms_thr': 1.0,
+                      'oks_thr': 0.9,
+                      'vis_thr': 0.2,
+                      'use_gt_bbox': True,
+                      'det_bbox_thr': 0.0,
+                      'bbox_file': 'COCO_val2017_detections_AP_H_56_person.json'
+
+                }
+    sampler:
+      batch_size: 132  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+      #      task_sp_list: ['mask_map']
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [  256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 16   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [  256, 192 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed',]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        'loss_fn',
+                        'upsample_network',
+                         'text_features',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        cls_loss_branch: True
+        description_dict_name: checked_pose_mhp_name # this key is only valid when we set text_prototype to be True
+        upsample_hidden_dim: 256
+
+        task: pose
+
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 16
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [ 0.463188095, 0.6055728499999999, 0.732992125, 0.732992125, 0.6055728499999999,
+              0.463188095, 0.74209784, 0.92598716, 0.9642093, 0.98767263,
+              0.67156195, 0.6861140800000001, 0.85427203, 0.85427203, 0.6861140800000001,
+              0.67156195
+ ]
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+                                              # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+                                              # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: full                            # full for all attention
+                                                               # type of mask for self-attention,
+                                                               # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+        loss_cfg:
+          type: CEL_Sigmoid
+
+
+  14:
+    name: mpi_inf_3dhp_256x192
+    loss_weight: 8223
+    gres_ratio: 2  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: MultiPoseDatasetDev
+      kwargs:
+        ann_file: /mnt/path...to.../pose_public/mpi_inf_3dhp/train.json
+        img_prefix: /mnt/path...to.../pose_public/mpi_inf_3dhp/processed/images/
+        use_udp: True
+        dataset_name: '3DHP'
+        data_cfg: {
+                      'image_size':[192, 256],
+                      'heatmap_size':[48, 64],
+                      'num_output_channels': 136,
+                      'num_joints': 17,
+                      'dataset_channel': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],],
+                      'inference_channel': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,],
+                      'flip_pairs': [[2, 5], [3, 6], [4, 7], [8, 11], [9, 12], [10, 13], ],
+                      'upper_body_ids': [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 14, 15, 16,],
+                      'lower_body_ids': [9, 10, 12, 13],
+                      'use_different_joint_weights': False,
+                      'joint_weights': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+
+                      'soft_nms': False,
+                      'nms_thr': 1.0,
+                      'oks_thr': 0.9,
+                      'vis_thr': 0.2,
+                      'use_gt_bbox': True,
+                      'det_bbox_thr': 0.0,
+                      'bbox_file': 'COCO_val2017_detections_AP_H_56_person.json'
+
+                }
+    sampler:
+      batch_size: 170 # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+      #      task_sp_list: ['mask_map']
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [  256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter: # for supvervised training, the results of label adapter is useless
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 17   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [  256, 192 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed',]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        'loss_fn',
+                        'upsample_network',
+                         'text_features',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        cls_loss_branch: True
+        description_dict_name: checked_pose_mpi_inf_3dhp_name # this key is only valid when we set text_prototype to be True
+        upsample_hidden_dim: 256
+
+        task: pose
+
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 17
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [
+                0.97905498, 0.98151887, 0.98018951, 0.97778281, 0.97704955,
+                0.98018951, 0.97778281, 0.97704955, 0.98309006, 0.98060388,
+                0.97209657, 0.98309006, 0.98060388, 0.97209657, 0.98405158,
+                0.98242514, 0.98066688
+ ]
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+                                              # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+                                              # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: full                            # full for all attention
+                                                               # type of mask for self-attention,
+                                                               # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: CEL_Sigmoid
+
+
+  15:
+    name: 3dpw_256x192
+    loss_weight: 2055
+    gres_ratio: 1  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: MultiPoseDatasetDev
+      kwargs:
+        ann_file: /mnt/path...to.../pose_public/3DPW/dataset_merged.json
+        img_prefix: /mnt/path...to.../pose_public/3DPW/imageFiles
+        use_udp: True
+        dataset_name: '3DPW'
+        data_cfg: {
+                      'image_size':[192, 256],
+                      'heatmap_size':[48, 64],
+                      'num_output_channels': 18,
+                      'num_joints': 18,
+                      'dataset_channel': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],],
+                      'inference_channel': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+
+                      'flip_pairs': [[2, 5], [3, 6], [4, 7], [8, 11], [9, 12], [10, 13], [14, 15], [16, 17]],
+                      'upper_body_ids': [0, 1, 2 ,3, 4, 5, 6, 714, 15, 16, 17],
+                      'lower_body_ids': [8, 9, 10, 11, 12, 13],
+                      'use_different_joint_weights': False,
+                      'joint_weights': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ],
+
+                      'soft_nms': False,
+                      'nms_thr': 1.0,
+                      'oks_thr': 0.9,
+                      'vis_thr': 0.2,
+                      'use_gt_bbox': True,
+                      'det_bbox_thr': 0.0,
+                      'bbox_file': 'COCO_val2017_detections_AP_H_56_person.json'
+                }
+    sampler:
+      batch_size: 170  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [  256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter: # for supvervised training, the results of label adapter is useless
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 18   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [  256, 192 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed',]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        'loss_fn',
+                        'upsample_network',
+                         'text_features',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        cls_loss_branch: True
+        description_dict_name: checked_pose_3dpw_name # this key is only valid when we set text_prototype to be True
+
+        upsample_hidden_dim: 256
+
+        task: pose
+
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 18
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [ 0.81362905, 0.92006165, 0.90966899, 0.83948673, 0.78390512,
+              0.90966899, 0.83948673, 0.78390512, 0.916771645, 0.895912625,
+              0.86267757, 0.916771645, 0.895912625, 0.86267757, 0.683630395,
+              0.683630395, 0.6390913949999999, 0.6390913949999999
+ ]
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+                                              # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+                                              # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: full                            # full for all attention
+                                                               # type of mask for self-attention,
+                                                               # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  16:
+    name: aist++_256x192
+    loss_weight: 2055
+    gres_ratio: 1  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: False # when torch.compile is True, this should be False
+        learnable_pos: True
+        drop_path_rate: 0.2
+        img_size: 1344
+        num_encoded_tokens: 192
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    dataset:
+      type: MultiPoseDatasetDev
+      kwargs:
+        ann_file: /mnt/path...to.../pose_public/aistplusplus/merged_train_1m_filter.json
+        img_prefix: /mnt/path...to.../pose_public/aistplusplus/images/
+        use_udp: True
+        dataset_name: 'AIST'
+        data_cfg: {
+          'image_size': [ 192, 256 ],
+          'heatmap_size': [ 48, 64 ],
+          'num_output_channels': 136,
+          'num_joints': 17,
+          'dataset_channel': [ [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 ], ],
+          'inference_channel': [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 ],
+          'flip_pairs': [ [ 1, 2 ], [ 3, 4 ], [ 5, 6 ], [ 7, 8 ], [ 9, 10 ], [ 11, 12 ], [ 13, 14 ], [ 15, 16 ] ],
+          'upper_body_ids': [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ],
+          'lower_body_ids': [ 13, 14, 15, 16 ],
+          'use_different_joint_weights': False,
+          'joint_weights': [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ],
+
+          'soft_nms': False,
+          'nms_thr': 1.0,
+          'oks_thr': 0.9,
+          'vis_thr': 0.2,
+          'use_gt_bbox': True,
+          'det_bbox_thr': 0.0,
+          'bbox_file': 'COCO_val2017_detections_AP_H_56_person.json'
+
+        }
+    sampler:
+      batch_size: 170  # per card
+      shuffle_strategy: 1
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256    # project to 256 dim for decoder
+        modality: rgb    # patch modality
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256   # project to 256 dim for decoder
+        modality: dense_labeling  # label modality
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3  # 3 for rgb
+        learnable_pos: False  # fixed position embedding, redundant parameter
+        test_pos_mode: False  # PE parameters are interpolated from mae to 'img_size'/16, then use repeat(batchsize, 1, 1)
+        img_size: [ 256, 192 ]
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter: # for supvervised training, the results of label adapter is useless
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 17   # class num
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: [ 256, 192 ]
+        dim_class_embed: 64  # embedding shape for class embedding. TODO: chance to text features
+        emb_padding_idx: 255  #
+        task_sp_list: [ 'pos_embed',
+                        'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs:
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        'loss_fn',
+                        'upsample_network',
+                        'text_features', ]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        cls_loss_branch: True
+        description_dict_name: checked_pose_aist_name # this key is only valid when we set text_prototype to be True
+
+        upsample_hidden_dim: 256
+
+        task: pose
+
+        loss_cfg:
+          type: POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            target_type: GaussianHeatMap
+            cfg:
+              num_classes: 17
+              deep_supervision: True
+              ignore_blank: False
+              class_weight: 0.001
+              dice_weight: 0.0
+              mask_weight: 1.0
+              redundant_queries: 1
+              dec_layers: 9
+              sample_weight: [
+                0.97905498, 0.98151887, 0.98018951, 0.97778281, 0.97704955,
+                0.98018951, 0.97778281, 0.97704955, 0.98309006, 0.98060388,
+                0.97209657, 0.98309006, 0.98060388, 0.97209657, 0.98405158,
+                0.98242514, 0.98066688
+              ]
+              eos_coef: 0.1
+
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: [ 'predictor.mask_token' ]
+        task_sp_list: [
+          'predictor.query_embed_patch',
+          'predictor.query_embed_label',
+          'predictor.class_embed', 'predictor.fc_bias',   # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20  # useless in Hulk
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False # indicate to use pre_norm or post_norm in (self-attn, FFN)
+          arch: fan_in # fan_in type to init the weights
+          enforce_input_project: False  # placeholder, useless in Hulk
+          mask_on: False # placeholder, useless in Hulk
+          intermediate_output: True
+          num_feature_levels: 1  # placeholder, useless in Hulk
+          cross_pos_embed: anchor # indicate to use adaptive pose2d. should always be "anchor" in Hulk
+          cls_out_dim: 1  # placeholder, useless in Hulk
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          label_pos_mode: False
+          self_attn_mask_type: full                            # full for all attention
+          # type of mask for self-attention,
+          # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: CEL_Sigmoid
+
+  17:
+    name: LIP_parsing
+    loss_weight: 1.8
+    gres_ratio: 4 # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: LIPParsingDataset  # train for 150 epochs
+      kwargs:
+        data_path: /mnt/path...to.../parsing_public/LIP # #sh1424:s3://parsing_public/human3.6 #/mnt/lustre/share/wangyizhou/human3.6 #sh1984:s3://seg_public/human3.6
+        cfg:
+          stride_level: 1
+          is_flip: True
+          crop_size: [ 480, 480 ]
+          is_multi_scale: True
+          scale_factor: 11
+          center_crop_test: False
+          base_size: 480
+          eval_crop_size: [ 480, 480 ]
+          ignore2endclass: True
+
+          is_photometricdistortion: True
+          brightness: 32
+          contrast_range: [ 0.5, 1.5 ]
+          saturation_range: [ 0.5, 1.5 ]
+          hue_delta: 18
+          is_rotate: True
+
+          ignore_value: 255 # duplicated with decoder.kwargs.ignore_value
+          num_classes: 20
+          label_list: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 ]
+
+
+    sampler:
+      batch_size: 27  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: dense_labeling
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 20
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        dim_class_embed: 64
+        emb_padding_idx: 255
+        task_sp_list: [ 'pos_embed', 'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs: # kept one
+        task_sp_list: [ 'post_mul_norm',
+                        'loss_fn', 'text_features' ]
+        modality_share_list: ['upsample_network',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        description_dict_name: checked_par_lip_name # this key is only valid when we set text_prototype to be True
+        cls_loss_branch: True
+        upsample_before_product: True
+        upsample_hidden_dim: 256
+        task: parsing
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight #POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            cfg: #for maskedsetloss v2
+              ignore_index: 20
+              loss_weight: 1.
+              loss_per_class: True
+              dice_weight: 50.0
+              mask_weight: 50.0
+              class_weight: 0.3
+              deep_supervision: True
+              dec_layers: 9
+              cls_weight_sample: True
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ] #follow v1 parsing
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          intermediate_output: True
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          label_pos_mode: False
+          self_attn_mask_type: patch_diag_label_row_textlabelfull # type of mask for self-attention,
+          # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight
+          kwargs:
+            cfg:
+              deep_supervision: True
+              no_object_weight: 0.1
+
+              class_weight: 0.25
+              dice_weight: 5.0
+              mask_weight: 5.0
+              redundant_queries: 1
+              num_points: 12544
+
+              dec_layers: 6
+
+              oversample_ratio: 3.0
+              importance_sample_ratio: 0.75
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ]
+
+  18:
+    name: CIHP_parsing
+    loss_weight: 3.6
+    gres_ratio: 4  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: CIHPParsingDataset  # train for 150 epochs
+      kwargs:
+        data_path: /mnt/path...to.../parsing_public/CIHP # #sh1424:s3://parsing_public/human3.6 #/mnt/lustre/share/wangyizhou/human3.6 #sh1984:s3://seg_public/human3.6
+        cfg:
+          stride_level: 1
+          is_flip: True
+          crop_size: [ 480, 480 ]
+          is_multi_scale: True
+          scale_factor: 11
+          center_crop_test: False
+          base_size: 480
+          eval_crop_size: [ 480, 480 ]
+          ignore2endclass: True
+
+          is_photometricdistortion: True
+          brightness: 32
+          contrast_range: [ 0.5, 1.5 ]
+          saturation_range: [ 0.5, 1.5 ]
+          hue_delta: 18
+          is_rotate: True
+
+          ignore_value: 255 # duplicated with decoder.kwargs.ignore_value
+          num_classes: 20
+          label_list: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 ]
+
+    sampler:
+      batch_size: 26  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: dense_labeling
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 20
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        dim_class_embed: 64
+        emb_padding_idx: 255
+        task_sp_list: [ 'pos_embed', 'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs: # kept one
+        task_sp_list: [ 'post_mul_norm',
+                        'loss_fn', 'text_features' ]
+        modality_share_list: ['upsample_network',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        description_dict_name: checked_par_cihp_name # this key is only valid when we set text_prototype to be True
+        cls_loss_branch: True
+        task: parsing
+        upsample_before_product: True
+        upsample_hidden_dim: 256   #dim of hidden features in upsampling network
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight #POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            cfg: #for maskedsetloss v2
+              ignore_index: 20
+              loss_weight: 1.
+              loss_per_class: True
+              dice_weight: 50.0
+              mask_weight: 50.0
+              class_weight: 0.1
+              deep_supervision: True
+              dec_layers: 9
+              cls_weight_sample: True
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ] #follow v1 parsing
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                         'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          intermediate_output: True
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          label_pos_mode: False
+          self_attn_mask_type: patch_diag_label_row_textlabelfull # type of mask for self-attention,
+          # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight
+          kwargs:
+            cfg:
+              deep_supervision: True
+              no_object_weight: 0.1
+
+              class_weight: 0.25
+              dice_weight: 5.0
+              mask_weight: 5.0
+              redundant_queries: 1
+              num_points: 12544
+
+              dec_layers: 6
+
+              oversample_ratio: 3.0
+              importance_sample_ratio: 0.75
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ]
+
+  19:
+    name: human3.6m_parsing
+    loss_weight: 2.25
+    gres_ratio: 7  # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: Human3M6ParsingDataset  # train for 150 epochs
+      kwargs:
+        data_path: /mnt/path...to.../parsing_public/human3.6 # #sh1424:s3://parsing_public/human3.6 #/mnt/lustre/share/wangyizhou/human3.6 #sh1984:s3://seg_public/human3.6
+        cfg:
+          stride_level: 1
+          is_flip: True
+          crop_size: [ 480, 480 ]
+          is_multi_scale: True
+          scale_factor: 11
+          center_crop_test: False
+          base_size: 480
+          eval_crop_size: [ 480, 480 ]
+          ignore2endclass: True
+
+          is_photometricdistortion: True
+          brightness: 32
+          contrast_range: [ 0.5, 1.5 ]
+          saturation_range: [ 0.5, 1.5 ]
+          hue_delta: 18
+          is_rotate: True
+
+          ignore_value: 255 # duplicated with decoder.kwargs.ignore_value
+          num_classes: 25
+          label_list: [0, 1, 2, 3, 6, 7, 8, 17, 18, 19, 25, 26, 27, 32, 33, 34, 38, 39, 43, 44,
+             46, 49, 50, 56, 58]
+
+    sampler:
+      batch_size: 31  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: dense_labeling
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 25
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        dim_class_embed: 64
+        emb_padding_idx: 255
+        task_sp_list: [ 'pos_embed', 'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs: # kept one
+        task_sp_list: [ 'post_mul_norm',
+                        'loss_fn', 'text_features' ]
+        modality_share_list: ['upsample_network',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        description_dict_name: checked_par_human_name # this key is only valid when we set text_prototype to be True
+        cls_loss_branch: True
+        task: parsing
+        upsample_before_product: True
+        upsample_hidden_dim: 256  # dim of hidden features in upsampling network
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight #POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            cfg: #for maskedsetloss v2
+              ignore_index: 25
+              loss_weight: 1.
+              loss_per_class: True
+              dice_weight: 50.0
+              mask_weight: 50.0
+              class_weight: 0.1
+              deep_supervision: True
+              dec_layers: 9
+              cls_weight_sample: True
+              sample_weight: [1.0, 0.97325, 0.96685, 0.9903500000000001, 0.97325, 0.96685, 0.9903500000000001, 0.9929, 0.9459,
+                              0.89645, 0.9929, 0.9459, 0.89645, 0.981, 0.9997, 0.99265, 0.9997, 0.99265,
+                              0.9995, 0.9999, 0.9999, 0.9758, 0.9256500000000001, 0.9758, 0.9256500000000001] #follow v1 parsing
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 25
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          intermediate_output: True
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+          # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: patch_diag_label_row_textlabelfull # type of mask for self-attention,
+          # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight
+          kwargs:
+            cfg:
+              deep_supervision: True
+              no_object_weight: 0.1
+
+              class_weight: 0.25
+              dice_weight: 5.0
+              mask_weight: 5.0
+              redundant_queries: 1
+              num_points: 12544
+
+              dec_layers: 6
+
+              oversample_ratio: 3.0
+              importance_sample_ratio: 0.75
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ]
+
+  20:
+    name: modanet_parsing
+    loss_weight: 0.021
+    gres_ratio: 1 # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: ModaNetParsingDataset  # train for 150 epochs
+      kwargs:
+        data_path: /mnt/path...to.../parsing_public/ModaNet/ # #sh1424:s3://parsing_public/human3.6 #/mnt/lustre/share/wangyizhou/human3.6 #sh1984:s3://seg_public/human3.6
+        cfg:
+          stride_level: 1
+          is_flip: True
+          crop_size: [ 480, 480 ]
+          is_multi_scale: True
+          scale_factor: 11
+          center_crop_test: False
+          base_size: 480
+          eval_crop_size: [ 480, 480 ]
+          ignore2endclass: True
+
+          is_photometricdistortion: True
+          brightness: 32
+          contrast_range: [ 0.5, 1.5 ]
+          saturation_range: [ 0.5, 1.5 ]
+          hue_delta: 18
+          is_rotate: True
+
+          ignore_value: 255 # duplicated with decoder.kwargs.ignore_value
+          num_classes: 14
+          label_list: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, ]
+
+    sampler:
+      batch_size: 27  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: dense_labeling
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 14
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        dim_class_embed: 64
+        emb_padding_idx: 255
+        task_sp_list: [ 'pos_embed', 'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs: # kept one
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        # 'upsample_network',
+                        'loss_fn', 'text_features' ]
+        modality_share_list: ['upsample_network',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        description_dict_name: checked_par_modanet_name # this key is only valid when we set text_prototype to be True
+        cls_loss_branch: True
+        upsample_before_product: True
+        upsample_hidden_dim: 256   # dim of hidden features in upsampling network
+        task: parsing
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight #POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            cfg: #for maskedsetloss v2
+              ignore_index: 14
+              loss_weight: 1.
+              loss_per_class: True
+              dice_weight: 50.0
+              mask_weight: 50.0
+              class_weight: 0.1
+              deep_supervision: True
+              dec_layers: 9
+              cls_weight_sample: True
+              sample_weight: [ 1.0, 0.3933582160972342, 0.2633553450090918, 0.13557278208440998, 0.7506555651258494, 0.45334481768590296, 0.2760455545985262, 0.16753756340319648, 0.4404249210450761, 0.6636233132357163, 0.13457747152837593, 0.25979519571250836, 0.10422049956933678, 0.0956263757297349 ] #follow v1 parsing
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [ # 'predictor.text_features',
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        # 'predictor.text_pe',
+                        # 'predictor.mask_token',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          intermediate_output: True
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+          # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: patch_diag_label_row_textlabelfull # type of mask for self-attention,
+          # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight
+          kwargs:
+            cfg:
+              deep_supervision: True
+              no_object_weight: 0.1
+
+              class_weight: 0.25
+              dice_weight: 5.0
+              mask_weight: 5.0
+              redundant_queries: 1
+              num_points: 12544
+
+              dec_layers: 6
+
+              oversample_ratio: 3.0
+              importance_sample_ratio: 0.75
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ]
+
+  21:
+    name: VIP_parsing
+    loss_weight: 0.021
+    gres_ratio: 1 # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: VIPParsingDataset  # train for 150 epochs
+      kwargs:
+        data_path: /mnt/path...to.../parsing_public/VIP # #sh1424:s3://parsing_public/human3.6 #/mnt/lustre/share/wangyizhou/human3.6 #sh1984:s3://seg_public/human3.6
+        cfg:
+          stride_level: 1
+          is_flip: True
+          crop_size: [ 480, 480 ]
+          is_multi_scale: True
+          scale_factor: 11
+          center_crop_test: False
+          base_size: 480
+          eval_crop_size: [ 480, 480 ]
+          ignore2endclass: True
+
+          is_photometricdistortion: True
+          brightness: 32
+          contrast_range: [ 0.5, 1.5 ]
+          saturation_range: [ 0.5, 1.5 ]
+          hue_delta: 18
+          is_rotate: True
+
+          ignore_value: 255 # duplicated with decoder.kwargs.ignore_value
+          num_classes: 20
+          label_list: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 ]
+
+
+    sampler:
+      batch_size: 27  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: dense_labeling
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 20
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        dim_class_embed: 64
+        emb_padding_idx: 255
+        task_sp_list: [ 'pos_embed', 'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs: # kept one
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        # 'upsample_network',
+                        'loss_fn', 'text_features' ]
+        modality_share_list: ['upsample_network',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        description_dict_name: checked_par_vip_name # this key is only valid when we set text_prototype to be True
+        cls_loss_branch: True
+        upsample_before_product: True
+        upsample_hidden_dim: 256   # dim of hidden features in upsampling network
+        task: parsing
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight #POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            cfg: #for maskedsetloss v2
+              ignore_index: 20
+              loss_weight: 1.
+              loss_per_class: True
+              dice_weight: 50.0
+              mask_weight: 50.0
+              class_weight: 0.1
+              deep_supervision: True
+              dec_layers: 9
+              cls_weight_sample: True
+              sample_weight: [1.0, 0.3266013319616655, 0.9908495316476258, 0.029184038117927337, 0.052466294872489036, 0.991336834695977, 0.10801884238453625, 0.30001624343494504, 0.3465807569440684, 0.9136932156586712, 0.9863555146461639, 0.015810276679841896, 0.11895608858086523, 0.9925821647084303, 0.9789106069630192, 0.9789106069630192, 0.4952081866912123, 0.4952081866912123, 0.7048026422654177, 0.7048026422654177, ] #follow v1 parsing
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          intermediate_output: True
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+          # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: patch_diag_label_row_textlabelfull # type of mask for self-attention,
+          # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight
+          kwargs:
+            cfg:
+              deep_supervision: True
+              no_object_weight: 0.1
+
+              class_weight: 0.25
+              dice_weight: 5.0
+              mask_weight: 5.0
+              redundant_queries: 1
+              num_points: 12544
+
+              dec_layers: 6
+
+              oversample_ratio: 3.0
+              importance_sample_ratio: 0.75
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ]
+
+  22:
+    name: deepfashion_parsing
+    loss_weight: 0.042
+    gres_ratio: 2 # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: DeepFashionParsingDataset  # train for 150 epochs
+      kwargs:
+        data_path: /mnt/path...to.../parsing_public/deepfashion2/ # #sh1424:s3://parsing_public/human3.6 #/mnt/lustre/share/wangyizhou/human3.6 #sh1984:s3://seg_public/human3.6
+        cfg:
+          stride_level: 1
+          is_flip: True
+          crop_size: [ 480, 480 ]
+          is_multi_scale: True
+          scale_factor: 11
+          center_crop_test: False
+          base_size: 480
+          eval_crop_size: [ 480, 480 ]
+          ignore2endclass: True
+
+          is_photometricdistortion: True
+          brightness: 32
+          contrast_range: [ 0.5, 1.5 ]
+          saturation_range: [ 0.5, 1.5 ]
+          hue_delta: 18
+          is_rotate: True
+
+          ignore_value: 255 # duplicated with decoder.kwargs.ignore_value
+          num_classes: 14
+          label_list: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,  ]
+
+    sampler:
+      batch_size: 27  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: dense_labeling
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 14
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        dim_class_embed: 64
+        emb_padding_idx: 255
+        task_sp_list: [ 'pos_embed', 'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs: # kept one
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        # 'upsample_network',
+                        'loss_fn', 'text_features' ]
+        modality_share_list: ['upsample_network',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        description_dict_name: checked_par_deepfashion_name # this key is only valid when we set text_prototype to be True
+        cls_loss_branch: True
+        upsample_before_product: True
+        upsample_hidden_dim: 256   # dim of hidden features in upsampling network
+        task: parsing
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight #POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            #          target_type: GaussianHeatMap
+            cfg: #for maskedsetloss v2
+              ignore_index: 14
+              loss_weight: 1.
+              loss_per_class: True
+              dice_weight: 50.0
+              mask_weight: 50.0
+              class_weight: 0.1
+              deep_supervision: True
+              dec_layers: 9
+              cls_weight_sample: True
+              sample_weight: [ 1.0, 0.367704898390819, 0.18624095519402378, 0.002807862013638187, 0.06970686754080256, 0.08321481967691353, 0.010231244888284599, 0.18925719286730117, 0.28635504086767627, 0.15953761441126063, 0.0887055183084064, 0.04064888180411646, 0.09255004922874958, 0.03362141268278453, ] #follow v1 parsing
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          intermediate_output: True
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+          # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: patch_diag_label_row_textlabelfull # type of mask for self-attention,
+          # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight
+          kwargs:
+            cfg:
+              deep_supervision: True
+              no_object_weight: 0.1
+
+              class_weight: 0.25
+              dice_weight: 5.0
+              mask_weight: 5.0
+              redundant_queries: 1
+              num_points: 12544
+
+              dec_layers: 6
+
+              oversample_ratio: 3.0
+              importance_sample_ratio: 0.75
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ]
+
+  23:
+    name: PaperDoll_parsing
+    loss_weight: 0.021
+    gres_ratio: 1 # int, > 0, = Task_GPUs / (world_Size/sum(all_gres_ratios))
+    dataset:
+      type: PaperDollParsingDataset  # train for 150 epochs
+      kwargs:
+        data_path: /mnt/path...to.../parsing_public/PaperDoll # #sh1424:s3://parsing_public/human3.6 #/mnt/lustre/share/wangyizhou/human3.6 #sh1984:s3://seg_public/human3.6
+        cfg:
+          stride_level: 1
+          is_flip: True
+          crop_size: [ 480, 480 ]
+          is_multi_scale: True
+          scale_factor: 11
+          center_crop_test: False
+          base_size: 480
+          eval_crop_size: [ 480, 480 ]
+          ignore2endclass: True
+
+          is_photometricdistortion: True
+          brightness: 32
+          contrast_range: [ 0.5, 1.5 ]
+          saturation_range: [ 0.5, 1.5 ]
+          hue_delta: 18
+          is_rotate: True
+
+          ignore_value: 255 # duplicated with decoder.kwargs.ignore_value
+          num_classes: 20
+          label_list: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 ]
+
+    sampler:
+      batch_size: 27  # per card
+      shuffle_strategy: 1
+
+    backbone:
+      type: vit_base_patch16_mask
+      kwargs:
+        task_sp_list: [ 'rel_pos_h', 'rel_pos_w' ] # wrong list would somehow cause .cuda() stuck without error
+        pretrained: True
+        lms_checkpoint_train: fairscale
+        window: False
+        test_pos_mode: learnable_interpolate
+        learnable_pos: True
+        drop_path_rate: 0.2
+        vis_patch_token_ratio: 1
+        vis_label_token_ratio: 0.
+
+    patch_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: rgb
+
+    label_neck:
+      type: MAEdecoder_proj_neck
+      kwargs:
+        mask_dim: 256
+        modality: dense_labeling
+
+    patch_adapter:
+      type: rgb_adapter  # change to adapter_rgb
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 3
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        task_sp_list: [ 'pos_embed' ]
+
+    label_adapter:
+      type: dense_labeling_adapter
+      kwargs:
+        pretrained: True
+        stride_level: 1
+        in_chans: 20
+        learnable_pos: False
+        test_pos_mode: False
+        img_size: 480
+        dim_class_embed: 64
+        emb_padding_idx: 255
+        task_sp_list: [ 'pos_embed', 'class_embed', ]
+
+    patch_proj:
+      type: rgb_projector
+      kwargs:
+        loss_cfg:
+          type: MaskedMSELoss
+          kwargs:
+            stride: 1
+            norm_pix_loss: True
+            pix_loss: True
+            pix_loss_weight: 1.
+            norm_pix_loss_weight: 1.
+
+    label_proj:
+      type: dense_labeling_projector
+      kwargs: # kept one
+        task_sp_list: [ 'post_mul_norm',
+                        'post_mul_norm_cls',
+                        'loss_fn', 'text_features' ]
+        modality_share_list: ['upsample_network',]
+        emb_padding_idx: 255 # should be the same with that in the input adapter
+        post_mul_norm: True
+        replace_post_mul_norm: False   # replace the post_mul_norm(LN) with a linear layer
+        translate_weight_scale: 1  # scale the translate weight to 6 times of the original value(1), NOTE that we should
+        description_dict_name: checked_par_paperdoll_name # this key is only valid when we set text_prototype to be True
+        cls_loss_branch: True
+        upsample_before_product: True
+        upsample_hidden_dim: 256   # dim of hidden features in upsampling network
+
+        task: parsing
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight #POS_FocalDiceLoss_bce_cls_emb
+          kwargs:
+            cfg: #for maskedsetloss v2
+              ignore_index: 20
+              loss_weight: 1.
+              loss_per_class: True
+              dice_weight: 50.0
+              mask_weight: 50.0
+              class_weight: 0.1
+              deep_supervision: True
+              dec_layers: 9
+              cls_weight_sample: True
+              sample_weight: [ 1.0, 0.12651171233101552, 0.9445288709780197, 0.022596273603759997, 0.1542096228225839, 0.7740073338443981, 0.3171279444960444, 0.38393872629003634, 0.19776277195374156, 0.5762416654276241, 0.932492136102867, 0.0684559727964192, 0.2131960924782717, 0.9246929266441772, 0.9079233711740138, 0.9079233711740138, 0.5743937220129259, 0.5743937220129259, 0.7146935638660443, 0.7146935638660443, ] #follow v1 parsing
+    decoder:
+      type: UniHCPv2_Head
+      kwargs:
+        predictor: 'hulk'
+        task: recons
+        modality_share_list: ['predictor.mask_token']
+        task_sp_list: [ # 'predictor.text_features',
+                        'predictor.query_embed_patch',
+                        'predictor.query_embed_label',
+                        # 'predictor.text_pe',
+                        # 'predictor.mask_token',
+                        'predictor.class_embed','predictor.fc_bias',    # useless in Hulk
+        ] # wrong list would somehow cause .cuda() stuck without error
+        loss_weight: 1.0
+        transformer_predictor_cfg:
+          hidden_dim: 256
+          num_queries: 20
+          nheads: 8
+          dim_feedforward: 2048
+          dec_layers: 9
+          pre_norm: False
+          arch: fan_in
+          enforce_input_project: False
+          mask_on: False
+          intermediate_output: True
+          num_feature_levels: 1
+          cross_pos_embed: anchor
+          cls_out_dim: 1
+          patch_pos_mode: False # Mode to generate pos_embed for patch tokens in decoder.
+          # given the fixed self.query_embed_patch (which has a same shape of that in adapter),
+          # repeat(batchsize, 1,1)
+          label_pos_mode: False
+          self_attn_mask_type: patch_diag_label_row_textlabelfull # type of mask for self-attention,
+          # shape [patch_tokens(rgb), label_tokens(sparse_labeling), fixed text tokens]
+          detach_from_peddet: True  # Not use the peddet_cfgs to modify the model structure
+          adding_per_layer_pe: True  # whether to add per-layer pe to the input of each decoder layer
+          use_adapt_pos2d: True
+
+        loss_cfg:
+          type: FocalDiceLoss_bce_cls_emb_sample_weight
+          kwargs:
+            cfg:
+              deep_supervision: True
+              no_object_weight: 0.1
+
+              class_weight: 0.25
+              dice_weight: 5.0
+              mask_weight: 5.0
+              redundant_queries: 1
+              num_points: 12544
+
+              dec_layers: 6
+
+              oversample_ratio: 3.0
+              importance_sample_ratio: 0.75
+              sample_weight: [ 1.0, 0.25279349, 0.97595474, 0.06368458, 0.08419378,
+                               0.91287129, 0.18341584, 0.50346535, 0.12729844, 0.6937058,
+                               0.96898868, 0.07022631, 0.07464639, 0.99359972, 0.88490099,
+                               0.88490099, 0.27644979000000003, 0.27644979000000003, 0.33016266, 0.33016266 ]

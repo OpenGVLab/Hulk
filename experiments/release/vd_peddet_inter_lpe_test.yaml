@@ -1,0 +1,29 @@
+common:
+  tester:
+    type: TesterMAEDev
+    kwargs:
+      pos_thr: 0.05
+      gt_path: 'CHval.odgt'
+
+  use_ceph: True
+  sync: True
+  collate: det
+
+tasks:
+  0:
+    name: CrowdHumanPeddetTest
+    loss_weight: 1.0 # *redundant*
+    gres_ratio: 1 # int, > 0| world/sum*ratio, *redundant*
+    dataset:
+      type: PedestrainDetectionDataset_v2
+      kwargs:
+        task_spec:
+          img_folder: /mnt/path...to.../peddet_public/CrowdHuman/Images
+          ann_file: /mnt/path...to.../peddet_public/CrowdHuman/annotations/val.json
+          return_masks: False
+        augmentation: {}
+        vit: True
+        train: False
+
+    sampler:
+      batch_size: 1

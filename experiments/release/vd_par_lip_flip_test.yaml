@@ -1,0 +1,36 @@
+common:
+  label_proj:
+    type: dense_labeling_projector
+    kwargs: # kept one
+      mask_times_cls: True
+  backbone:
+    kwargs:
+      test_pos_mode: False
+      mask_all_gt_tokens: True
+  tester:
+    type: TesterMAEDev
+  use_ceph: True
+  sync: True
+  collate: dev
+  model_entry_kwargs:
+    test_flag: par_flip
+    flip_channels: [[14, 15], [16, 17], [18, 19]]
+
+tasks:
+  0:
+    name: ParTest
+    loss_weight: 1.0  # *redundant*
+    gres_ratio: 1  # int, > 0| world/sum*ratio, *redundant*
+    dataset:
+      type: LIPParsingDataset
+      kwargs:
+        dataset: val
+        is_train: False
+        cfg:
+          eval_crop_size: [ 480, 480 ]
+          is_flip: False
+          is_multi_scale: False
+
+    sampler:
+      batch_size: 16 # per card
+

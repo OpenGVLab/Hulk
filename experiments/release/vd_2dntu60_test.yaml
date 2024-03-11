@@ -1,0 +1,69 @@
+common:
+
+  tester:
+    type: TesterMAEDev
+  use_ceph: True
+  sync: True
+  collate: dev
+#
+#  label_adapter:
+#    type: text_adapter
+#    kwargs:
+#      people_cnt: 28 #SPECIFIC
+#
+#  label_proj:
+#    type: text_projector
+#    kwargs:
+#      people_cnt: 28 #SPECIFIC
+
+tasks:
+  0:
+    name: skeletion_action_Test
+    loss_weight: 1.0
+    gres_ratio: 1  # int, > 0| world/sum*ratio
+    dataset:
+      type: mmSkeletonDataset
+      kwargs:
+        ann_file:
+          - /mnt/petrelfs/share_data/vitruvian/data/skelton_action/ntu60_hrnet.pkl
+          - /mnt/petrelfs/share_data/vitruvian/data/skelton_action/ntu120_hrnet.pkl
+          - /mnt/petrelfs/share_data/vitruvian/data/skelton_action/gym_hrnet.pkl
+        dataset_name:
+          - 2dntu60
+          - 2dntu120
+          - gym
+        split: test
+        select_data: 2dntu60
+        data_pipeline:
+          - type: PreNormalize2D
+            kwargs: {}
+          - type: GenSkeFeat
+            kwargs:
+              dataset: coco
+              feats: ['j']
+          - type: UniformSampleGivenFrames
+            kwargs:
+              clip_len: 25
+              given_len: 7
+          - type: PoseDecode
+            kwargs: {}
+          - type: FormatGCNInput2D
+            kwargs:
+              num_person: 2
+              window: False
+              rotate: False
+              mode: zero
+          - type: Collect
+            kwargs:
+              keys: ['keypoint', 'label']
+              meta_keys: []
+          - type: ToTensor
+            kwargs:
+              keys: ['keypoint']
+        flip: False
+#        people_cnt: 28
+
+#        kp_dim: 3d
+#        ann_file: ntu60_3danno.pkl
+#        dataset_name: ntu60
+#        num_classes: 60

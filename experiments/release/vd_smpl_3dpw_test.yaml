@@ -1,0 +1,27 @@
+common:
+
+  tester:
+    type: TesterMAEDev
+  use_ceph: True
+  sync: True
+  collate: dev
+
+tasks:
+  0:
+    name: smpl_Test
+    loss_weight: 1.0
+    gres_ratio: 1  # int, > 0| world/sum*ratio
+    dataset:
+      type: MeshTSVYamlDataset  # train for 150 epochs
+      kwargs:
+        is_composite: False
+        is_train: False
+        cv2_output: False
+        augmentation:
+          scale_factor: 0.25
+          noise_factor: 0.4
+          rot_factor: 30
+          img_res: 224
+        cfg:
+          data_path: /mnt/path...to.../Processed_SMPL/3dpw/dataset_val.pkl
+          root_path: /mnt/path...to.../Processed_SMPL/3dpw/images

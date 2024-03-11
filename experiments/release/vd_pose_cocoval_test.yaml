@@ -1,0 +1,53 @@
+common:
+  tester:
+    type: TesterMAEDev
+
+  model_entry_kwargs:
+    test_flag: pose
+
+  use_ceph: True
+  sync: True
+  collate: dev_collate
+
+
+tasks:
+  0:
+    name: COCOPoseTest # deprecated
+    loss_weight: 1.0 # *redundant*
+    gres_ratio: 1
+    dataset:
+      type: COCOPosDatasetDev
+      kwargs:
+        ann_file:  /mnt/path...to.../pose/coco/annotations/person_keypoints_val2017.json
+        img_prefix: /mnt/path...to.../pose/coco/val2017/
+        use_dup: True
+        test_mode: True
+        data_use_ratio: 1
+        data_cfg: {
+                    'image_size':[192, 256],
+                    'heatmap_size':[192, 256],
+                    'num_output_channels': 17,
+                    'num_joints': 17,
+                    'dataset_channel': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],],
+                    'inference_channel': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                    'soft_nms': False,
+                    'nms_thr': 1.0,
+                    'oks_thr': 0.9,
+                    'vis_thr': 0.2,
+                    'use_gt_bbox': False,
+                    'det_bqbox_thr': 0.0,
+                    'bbox_file': './COCO_val2017_detections_AP_H_56_person.json'
+                }
+    sampler:
+      batch_size: 32 # per card
+    evaluation:
+      cfg:
+        interval: 10
+        metric: mAP
+        key_indicator: AP
+        rle_score: True
+        soft_nms: False
+        nms_thr: 1.0
+        oks_thr: 0.9
+        vis_thr: 0.2
+        cls_logits_vis_thr: 0.05

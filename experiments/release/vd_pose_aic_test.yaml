@@ -1,0 +1,67 @@
+common:
+  tester:
+    type: TesterMAEDev
+
+  model_entry_kwargs:
+    test_flag: pose
+
+  use_ceph: True
+  sync: True
+  collate: dev_collate
+  workers: 4
+
+tasks:
+  0:
+    name: AICPoseTest # deprecated
+    loss_weight: 1.0 # *redundant*
+    gres_ratio: 1
+    dataset:
+      type: MultiPoseDatasetDev
+      kwargs:
+        dataset_name: 'aic'
+        ann_file: /mnt/path...to.../pose/ai_challenge/annotations/aic_val.json
+        img_prefix: /mnt/path...to.../pose/ai_challenge/ai_challenger_keypoint_validation_20170911/keypoint_validation_images_20170911/
+        use_udp: True
+        test_mode: True
+        data_use_ratio: 1
+        data_cfg: {
+                      'image_size':[192, 256],
+                      'heatmap_size':[48, 64],
+                      'num_output_channels': 14,
+                      'num_joints': 14,
+                      'dataset_channel': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],],
+                      'inference_channel': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+
+                      'flip_pairs': [[0, 3], [1, 4], [2, 5], [6, 9], [7, 10], [8, 11],],
+                      'upper_body_ids': [0, 1, 2, 3, 4, 5, 12, 13],
+                      'lower_body_ids': [6, 7, 8, 9, 10, 11],
+                      'use_different_joint_weights': False,
+                      'joint_weights': [1., 1.2, 1.5, 1., 1.2, 1.5, 1., 1.2, 1.5, 1., 1.2, 1.5, 1., 1.],
+
+                      'soft_nms': False,
+                      'nms_thr': 1.0,
+                      'oks_thr': 0.9,
+                      'vis_thr': 0.2,
+                      'use_gt_bbox': True,
+                      'det_bbox_thr': 0.0,
+                      'bbox_file': './COCO_val2017_detections_AP_H_56_person.json'
+        }
+    sampler:
+      batch_size: 32 # per card
+    evaluation:
+      cfg:
+        interval: 10
+        metric: mAP
+        key_indicator: AP
+        rle_score: True
+        soft_nms: False
+        nms_thr: 1.0
+        oks_thr: 0.9
+        vis_thr: 0.2
+        sigmas: [
+        0.01388152, 0.01515228, 0.01057665, 0.01417709, 0.01497891, 0.01402144,
+        0.03909642, 0.03686941, 0.01981803, 0.03843971, 0.03412318, 0.02415081,
+        0.01291456, 0.01236173
+        ]
+        cls_logits_vis_thr: 0.05
+        use_area: False

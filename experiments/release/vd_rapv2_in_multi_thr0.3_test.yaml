@@ -1,0 +1,48 @@
+common:
+  backbone:
+    kwargs:
+      test_pos_mode: False
+      mask_all_gt_tokens: True
+  tester:
+    type: TesterMAEDev
+    kwargs:
+      threshold: 0.3
+  use_ceph: True
+  sync: True
+  collate: dev
+
+tasks:
+  0:
+    name: pedattrTest
+    loss_weight: 1.0
+    gres_ratio: 1  # int, > 0| world/sum*ratio
+    dataset:
+      type: MultiAttrDataset
+      kwargs:
+        data_use_ratio: 1.0
+        select_data: rap2
+        task_spec:
+          dataset:
+            - rap2
+            - PA_100k
+            - parse27k
+            - market
+            - HARDHC
+          data_path:
+            - /mnt/path...to.../pedattr/rap2/dataset.pkl
+            - /mnt/path...to.../pedattr/PA-100k/dataset.pkl
+            - /mnt/path...to.../pedattr/Parse27k/parse27k/parse27k/dataset.pkl
+            - /mnt/path...to.../pedattr/market/dataset.pkl
+            - /mnt/path...to.../pedattr/HARDHC/dataset.pkl
+          root_path:
+            - /mnt/path...to.../pedattr/rap2/RAP_dataset/
+            - /mnt/path...to.../pedattr/PA-100k/data/
+            - /mnt/path...to.../pedattr/Parse27k/parse27k/parse27k/images
+            - /mnt/path...to.../pedattr/market/bounding_box_train
+            - /mnt/path...to.../pedattr/HARDHC/croped_image/
+        augmentation:
+          height: 256
+          width: 192
+        train: False
+    sampler:
+      batch_size: 2000 # per card
