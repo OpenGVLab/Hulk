@@ -119,7 +119,7 @@ Hulk has achieved state-of-the-art results on various human-centric tasks.
 </table>
 <br>
 
-♣: p.s. We find that the performance of image caption and monocular 3D human pose and mesh recovery is not as good as the direct evaluation, indicating that overfitting may occur during finetuning.
+♣: We find that the performance of image caption and monocular 3D human pose and mesh recovery is not as good as the direct evaluation, indicating that overfitting may occur during finetuning.
 
 
 ## Contact
