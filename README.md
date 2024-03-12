@@ -6,8 +6,7 @@
 [Xun Guo](https://github.com/Space-Xun)<sup>1,4</sup>, [Feng Zhu](https://zhufengx.github.io/)<sup>3</sup>, [Lei Bai](http://leibai.site/)<sup>1</sup>, [Rui Zhao](http://zhaorui.xyz/)<sup>3</sup>, 
 [Jian Wu]()<sup>2</sup>, [Tong He](http://tonghe90.github.io/)<sup>1</sup>, [Wanli Ouyang](https://wlouyang.github.io/)<sup>1</sup>
 
-<sup>1</sup>[Shanghai AI Lab](https://www.shlab.org.cn/), 
-<sup>2</sup>[ZJU](https://www.zju.edu.cn/), <sup>3</sup>[SenseTime](https://www.sensetime.com), <sup>4</sup>[USTC](https://www.ustc.edu.cn/)
+<sup>1</sup>[Shanghai AI Lab](https://www.shlab.org.cn/), <sup>2</sup>[ZJU](https://www.zju.edu.cn/), <sup>3</sup>[SenseTime](https://www.sensetime.com), <sup>4</sup>[USTC](https://www.ustc.edu.cn/)
 
 
 [ArXiv](https://arxiv.org/abs/2312.01697) | [Project Page]()
