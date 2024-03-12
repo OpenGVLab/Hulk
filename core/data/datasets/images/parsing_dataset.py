@@ -25,7 +25,6 @@ try:
                       enable_mc=True)
 except:
     print("ceph can not be used")
-from petrelbox.io import PetrelHelper
 
 palette_dict = {
     'human3m6_parsing': np.array(

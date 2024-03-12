@@ -2,12 +2,12 @@
 
 <h2>Hulk: A Universal Knowledge Translator for Human-centric Tasks</h2>
 
-[Yizhou Wang](https://github.com/Cohesion97)<sup>1*</sup>, [Yixuan Wu](https://scholar.google.com/citations?user=zjAxJcwAAAAJ&hl=en&oi=ao)<sup>1*,3</sup>, [Shixiang Tang](https://github.com/tangshixiang)<sup>1,2 :email:</sup>, [Weizhen He]()<sup>3,4</sup>, 
-[Xun Guo](https://github.com/Space-Xun)<sup>1,5</sup>, [Feng Zhu](https://zhufengx.github.io/)<sup>4</sup>, [Lei Bai](http://leibai.site/)<sup>1</sup>, [Rui Zhao](http://zhaorui.xyz/)<sup>4</sup>, 
-[Jian Wu]()<sup>3</sup>, [Tong He](http://tonghe90.github.io/)<sup>1</sup>, [Wanli Ouyang](https://wlouyang.github.io/)<sup>1</sup>
+[Yizhou Wang](https://github.com/Cohesion97)<sup>1*</sup>, [Yixuan Wu](https://scholar.google.com/citations?user=zjAxJcwAAAAJ&hl=en&oi=ao)<sup>1*,2</sup>, [Shixiang Tang](https://github.com/tangshixiang)<sup>1 :email:</sup>, [Weizhen He]()<sup>2,3</sup>, 
+[Xun Guo](https://github.com/Space-Xun)<sup>1,4</sup>, [Feng Zhu](https://zhufengx.github.io/)<sup>3</sup>, [Lei Bai](http://leibai.site/)<sup>1</sup>, [Rui Zhao](http://zhaorui.xyz/)<sup>3</sup>, 
+[Jian Wu]()<sup>2</sup>, [Tong He](http://tonghe90.github.io/)<sup>1</sup>, [Wanli Ouyang](https://wlouyang.github.io/)<sup>1</sup>
 
-<sup>1</sup>[Shanghai AI Lab](https://www.shlab.org.cn/), <sup>2</sup>[USYD](https://www.sydney.edu.au), 
-<sup>3</sup>[ZJU](https://www.zju.edu.cn/), <sup>4</sup>[Sensetime](https://www.sensetime.com), <sup>5</sup>[USTC](https://www.ustc.edu.cn/)
+<sup>1</sup>[Shanghai AI Lab](https://www.shlab.org.cn/),  
+<sup>2</sup>[ZJU](https://www.zju.edu.cn/), <sup>3</sup>[SenseTime](https://www.sensetime.com), <sup>4</sup>[USTC](https://www.ustc.edu.cn/)
 
 
 [ArXiv](https://arxiv.org/abs/2312.01697) | [Project Page]()
