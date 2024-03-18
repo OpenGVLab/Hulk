@@ -2,7 +2,7 @@
 
 <h2>Hulk: A Universal Knowledge Translator for Human-centric Tasks</h2>
 
-[Yizhou Wang](https://github.com/Cohesion97)<sup>1*</sup>, [Yixuan Wu](https://scholar.google.com/citations?user=zjAxJcwAAAAJ&hl=en&oi=ao)<sup>1*,2</sup>, [Shixiang Tang](https://github.com/tangshixiang)<sup>1 :email:</sup>, [Weizhen He]()<sup>2,3</sup>, 
+[Yizhou Wang](https://scholar.google.com/citations?user=CQGaGMAAAAAJ&hl=zh-CN&authuser=1)<sup>1*</sup>, [Yixuan Wu](https://scholar.google.com/citations?user=zjAxJcwAAAAJ&hl=en&oi=ao)<sup>1*,2</sup>, [Shixiang Tang](https://github.com/tangshixiang)<sup>1 :email:</sup>, [Weizhen He]()<sup>2,3</sup>, 
 [Xun Guo](https://github.com/Space-Xun)<sup>1,4</sup>, [Feng Zhu](https://zhufengx.github.io/)<sup>3</sup>, [Lei Bai](http://leibai.site/)<sup>1</sup>, [Rui Zhao](http://zhaorui.xyz/)<sup>3</sup>, 
 [Jian Wu]()<sup>2</sup>, [Tong He](http://tonghe90.github.io/)<sup>1</sup>, [Wanli Ouyang](https://wlouyang.github.io/)<sup>1</sup>
 
