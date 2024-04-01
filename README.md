@@ -9,7 +9,7 @@
 <sup>1</sup>[Shanghai AI Lab](https://www.shlab.org.cn/), <sup>2</sup>[ZJU](https://www.zju.edu.cn/), <sup>3</sup>[SenseTime](https://www.sensetime.com), <sup>4</sup>[USTC](https://www.ustc.edu.cn/)
 
 
-[ArXiv](https://arxiv.org/abs/2312.01697) | [Project Page]()
+[ArXiv](https://arxiv.org/abs/2312.01697) | [Project Page](https://humancentricmodels.github.io/Hulk/)
 
 
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/hulk-a-universal-knowledge-translator-for/pose-estimation-on-aic)](https://paperswithcode.com/sota/pose-estimation-on-aic?p=hulk-a-universal-knowledge-translator-for) 
@@ -38,7 +38,8 @@ For more details, please take a look at our paper [Hulk: A Universal Knowledge T
 </p>
 
 ## News
-- _Mar. 2024_ Training and inference code are released! Checkpoints are comming soon.
+- _Apr. 2024_ Project page with demos is released at [Hulk](https://humancentricmodels.github.io/Hulk/)
+- _Mar. 2024_ Training and inference code are released! Checkpoints are coming soon.
 - _Dec. 2023_ Hulk is released on [ArXiv](https://arxiv.org/abs/2312.01697)!
 
 ## Installation
