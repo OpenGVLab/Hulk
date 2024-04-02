@@ -38,8 +38,9 @@ For more details, please take a look at our paper [Hulk: A Universal Knowledge T
 </p>
 
 ## News
-- _Apr. 2024_ Project page with demos is released at [Hulk](https://humancentricmodels.github.io/Hulk/)
-- _Mar. 2024_ Training and inference code are released! Checkpoints are coming soon.
+- _Apr. 2024_ A pretrained Hulk is released on [🤗  Hugging Face Models](https://huggingface.co/OpenGVLab/Hulk/tree/main)!
+- _Apr. 2024_ Project page with demos is released at [Hulk](https://humancentricmodels.github.io/Hulk/).
+- _Mar. 2024_ Training and inference code are released!
 - _Dec. 2023_ Hulk is released on [ArXiv](https://arxiv.org/abs/2312.01697)!
 
 ## Installation
@@ -65,7 +66,7 @@ sh train.sh 80 Hulk_vit-B
 
 ## Evaluation
 A pretrained Hulk will be soon available at [🤗  Hugging Face Models](https://huggingface.co/OpenGVLab/Hulk/tree/main). 
-Download it, put it under the folder `experiments/release/checkpoints/`, then use the following command to evaluate the model on the test set.
+Download it, put it under the folder `experiments/release/checkpoints/Hulk_vit-B` (first `mkdir -p experiments/release/checkpoints/Hulk_vit-B`), then use the following command to evaluate the model on the test set.
 ```bash
 cd experiments/release
 sh batch_eval.sh 1 Hulk_vit-B 

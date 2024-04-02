@@ -35,6 +35,7 @@ test_info_list[pa100k_in_multi_thr0.3]=5
 test_info_list[image_caption]=7
 test_info_list[pose_cocoval]=8
 test_info_list[pose_aic]=9
+test_info_list[par_lip_flip]=17
 test_info_list[par_cihp_flip]=18
 test_info_list[par_hm36_flip]=19
 
