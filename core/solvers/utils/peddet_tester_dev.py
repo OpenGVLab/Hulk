@@ -25,8 +25,6 @@ import torch.distributed as dist
 
 from .seg_tester_dev import DatasetEvaluator
 
-from petrelbox.io import PetrelHelper
-
 PERSON_CLASSES = ['background', 'person']
 
 class PedDetEvaluator(DatasetEvaluator):
@@ -687,8 +685,8 @@ def computeJaccard(gt_path, dt_path):
 
 def load_func(fpath):
     assert os.path.exists(fpath)
-    with PetrelHelper.open(fpath) as fid:
-    # with open(fpath,'r') as fid:
+
+    with open(fpath,'r') as fid:
         lines = fid.readlines()
     records = [json.loads(line.strip('\n')) for line in lines]
     if len(records) == 1: records = records[0]
