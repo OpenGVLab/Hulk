@@ -38,6 +38,7 @@ For more details, please take a look at our paper [Hulk: A Universal Knowledge T
 </p>
 
 ## News
+- _Dec. 2024_ The training and testing datasets are released.
 - _Apr. 2024_ A pretrained Hulk is released on [🤗  Hugging Face Models](https://huggingface.co/OpenGVLab/Hulk/tree/main)!
 - _Apr. 2024_ Project page with demos is released at [Hulk](https://humancentricmodels.github.io/Hulk/).
 - _Mar. 2024_ Training and inference code are released!
